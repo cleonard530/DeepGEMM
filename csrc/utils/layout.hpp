@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cute/arch/mma_sm100_umma.hpp>
-#include <torch/python.h>
+#include "torch_compat.hpp"
 
 #include "math.hpp"
 #include "exception.hpp"

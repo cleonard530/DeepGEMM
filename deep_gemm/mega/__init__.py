@@ -33,7 +33,15 @@ class SymmBuffer:
         self.num_ring_tokens = num_ring_tokens
 
         # Allocate a symmetric buffer
-        num_bytes, slice_input_buffers = _C.get_symm_buffer_size_for_mega_moe(
+        num_bytes = _C.get_symm_buffer_size_for_mega_moe(
+            group.size(), num_experts,
+            num_max_tokens_per_rank, num_topk,
+            hidden, intermediate_hidden,
+            mma_type, activation,
+            num_ring_tokens,
+        )
+        slice_input_buffers = lambda buffer: _C.slice_symm_buffer_for_mega_moe(
+            buffer,
             group.size(), num_experts,
             num_max_tokens_per_rank, num_topk,
             hidden, intermediate_hidden,
