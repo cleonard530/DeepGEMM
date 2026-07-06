@@ -561,6 +561,7 @@ static torch::Tensor fp8_paged_mqa_logits(
 }  // namespace deep_gemm::torch_registration
 
 TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
+#if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
     m.def(
         "fp8_gemm_nt_skip_head_mid(Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, int[] head_splits, int[]? recipe=None, str compiled_dims='nk', bool disable_ue8m0_cast=False) -> ()");
     m.def(
@@ -573,6 +574,7 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
         "fp8_mqa_logits(Tensor q, Tensor kv, Tensor kv_sf, Tensor weights, Tensor cu_seq_len_k_start, Tensor cu_seq_len_k_end, bool clean_logits=True, int max_seqlen_k=0) -> Tensor");
     m.def(
         "fp8_paged_mqa_logits(Tensor q, Tensor kv_cache, Tensor weights, Tensor context_lens, Tensor block_table, Tensor schedule_meta, int max_context_len, bool clean_logits=False, Tensor? indices=None) -> Tensor");
+#endif
 }
 
 TORCH_LIBRARY_IMPL(deep_gemm, CUDA, m) {
