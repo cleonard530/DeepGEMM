@@ -512,6 +512,7 @@ static void bf16_mega_moe(
 }  // namespace deep_gemm::torch_registration
 
 TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
+#if DG_TENSORMAP_COMPATIBLE
     m.def(
         "get_token_alignment_for_mega_moe() -> int",
         DEEP_GEMM_IMPL(get_token_alignment_for_mega_moe));
@@ -527,12 +528,15 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
         "fp8_fp4_mega_moe(Tensor(y!) y, Tensor l1_weights, Tensor l1_weights_sf, Tensor l2_weights, Tensor l2_weights_sf, Tensor? cumulative_local_expert_recv_stats, Tensor(sym_buffer!) sym_buffer, int[] sym_buffer_ptrs, int rank_idx, int num_max_tokens_per_rank, int num_experts, int num_topk, int[] recipe, str activation, float? activation_clamp, bool fast_math, int num_ring_tokens) -> ()");
     m.def(
         "bf16_mega_moe(Tensor(y!) y, Tensor l1_weights, Tensor l2_weights, Tensor? cumulative_local_expert_recv_stats, Tensor(sym_buffer!) sym_buffer, int[] sym_buffer_ptrs, int rank_idx, int num_max_tokens_per_rank, int num_experts, int num_topk, str activation, float? activation_clamp, bool fast_math, int num_ring_tokens) -> ()");
+#endif
 }
 
 TORCH_LIBRARY_IMPL(deep_gemm, CUDA, m) {
     using namespace deep_gemm::torch_registration;
 
+#if DG_TENSORMAP_COMPATIBLE
     m.impl("slice_symm_buffer_for_mega_moe", TORCH_FN(slice_symm_buffer_for_mega_moe));
     m.impl("fp8_fp4_mega_moe", TORCH_FN(fp8_fp4_mega_moe));
     m.impl("bf16_mega_moe", TORCH_FN(bf16_mega_moe));
+#endif
 }

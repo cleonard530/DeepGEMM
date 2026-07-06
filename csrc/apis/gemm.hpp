@@ -872,6 +872,7 @@ static void cublaslt_gemm_tt(
 }  // namespace deep_gemm::torch_registration
 
 TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
+#if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
     // GEMM — FP8/FP4
     m.def(
         "fp8_fp4_gemm_nt(Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, Tensor? c=None, int[]? recipe=None, int[]? recipe_a=None, int[]? recipe_b=None, str compiled_dims='nk', bool disable_ue8m0_cast=False) -> ()");
@@ -891,6 +892,9 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
         "k_grouped_fp8_gemm_tn_contiguous(Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, int[]? ks_cpu, Tensor grouped_layout, Tensor? c=None, int[]? recipe=None, str compiled_dims='mn', bool use_psum_layout=False) -> ()");
     m.def(
         "k_grouped_fp8_gemm_nt_contiguous(Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, int[]? ks_cpu, Tensor grouped_layout, Tensor? c=None, int[]? recipe=None, str compiled_dims='mn', bool use_psum_layout=False) -> ()");
+#endif
+
+#if DG_TENSORMAP_COMPATIBLE
     // GEMM — BF16
     m.def(
         "bf16_gemm_nt(Tensor a, Tensor b, Tensor(d!) d, Tensor? c=None, str compiled_dims='nk') -> ()");
@@ -908,6 +912,8 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
         "m_grouped_bf16_gemm_nt_masked(Tensor a, Tensor b, Tensor(d!) d, Tensor masked_m, int expected_m, str compiled_dims='nk') -> ()");
     m.def(
         "k_grouped_bf16_gemm_tn_contiguous(Tensor a, Tensor b, Tensor(d!) d, int[]? ks_cpu, Tensor grouped_layout, Tensor? c=None, str compiled_dims='mn', bool use_psum_layout=False) -> ()");
+#endif
+
     // GEMM — cuBLASLt
     m.def("cublaslt_gemm_nt(Tensor a, Tensor b, Tensor(d!) d, Tensor? c=None) -> ()");
     m.def("cublaslt_gemm_nn(Tensor a, Tensor b, Tensor(d!) d, Tensor? c=None) -> ()");
