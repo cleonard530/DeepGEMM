@@ -36,12 +36,20 @@ class SymmBuffer:
         self.activation = activation
 
         # Allocate a symmetric buffer
-        num_bytes, slice_input_buffers = _C.get_symm_buffer_size_for_mega_moe(
+        num_bytes = _C.get_symm_buffer_size_for_mega_moe(
             group.size(), num_experts,
             num_max_tokens_per_rank, num_topk,
             hidden, intermediate_hidden,
             mma_type, activation,
-            num_shared_experts
+            num_shared_experts,
+        )
+        slice_input_buffers = lambda buffer: _C.slice_symm_buffer_for_mega_moe(
+            buffer,
+            group.size(), num_experts,
+            num_max_tokens_per_rank, num_topk,
+            hidden, intermediate_hidden,
+            mma_type, activation,
+            num_shared_experts,
         )
         allocator = torch if group.size() == 1 else symm_mem
         self.buffer = allocator.empty(num_bytes, dtype=torch.int8, device='cuda')

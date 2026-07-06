@@ -148,6 +148,19 @@ class BracketTracker:
                 self.angle == 0)
 
 
+def is_torch_schema_string(schema_or_name: str) -> bool:
+    """Return True if the m.def string literal is a TORCH_LIBRARY schema."""
+    return ' -> ' in schema_or_name or '(' in schema_or_name
+
+
+def extract_torch_op_name(schema: str) -> str:
+    """Extract the operator name from a TORCH schema string."""
+    paren_pos = schema.find('(')
+    if paren_pos == -1:
+        return schema.strip()
+    return schema[:paren_pos].strip()
+
+
 def extract_m_def_statements(root_path):
     """
     Scan all c files under root_path and extract all m.def(...) statements.
@@ -270,16 +283,25 @@ def parse_m_def_statement(m_def_str):
     if current:
         args_list.append(''.join(current).strip())
 
-    if len(args_list) < 2:
-        raise ValueError(f'[{m_def_str}] m.def has insufficient arguments')
+    if len(args_list) < 1:
+        raise ValueError(f'[{m_def_str}] m.def has no arguments')
 
     # Extract Python function name
     first = args_list[0].strip()
     str_match = re.match(r'^"([^"\\]*(?:\\.[^"\\]*)*)"', first)
-    if str_match:
-        result['python_function_name'] = str_match.group(1)
-    else:
+    if not str_match:
         raise ValueError(f'[{m_def_str}] m.def first argument should be a string literal')
+
+    schema_or_name = str_match.group(1)
+    if is_torch_schema_string(schema_or_name):
+        result['is_torch_schema'] = True
+        result['python_function_name'] = extract_torch_op_name(schema_or_name)
+        return result
+
+    if len(args_list) < 2:
+        raise ValueError(f'[{m_def_str}] m.def has insufficient arguments')
+
+    result['python_function_name'] = schema_or_name
 
     cpp_func_part = args_list[1].strip()
     if cpp_func_part.startswith('&'):
@@ -400,7 +422,7 @@ def parse_mdef_and_attach_cpp_signatures(item, func_index):
         if cpp_func_name and cpp_func_name in func_index:
             cpp_sig = func_index[cpp_func_name]
         else:
-            if not parsed['is_lambda']:
+            if not parsed['is_lambda'] and not parsed.get('is_torch_schema'):
                 print(f'Warning: C++ function "{cpp_func_name}" not found in any .cpp file')
 
         parsed['cpp_signature'] = cpp_sig
