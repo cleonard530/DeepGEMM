@@ -292,10 +292,12 @@ static void fp8_einsum(const std::string& expr,
 }  // namespace deep_gemm::torch_registration
 
 TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
+#if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
     m.def(
         "einsum(str expr, Tensor a, Tensor b, Tensor(d!) d, Tensor? c=None, bool use_cublaslt=False) -> ()");
     m.def(
         "fp8_einsum(str expr, Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, Tensor? c=None, int[]? recipe=None) -> ()");
+#endif
 }
 
 TORCH_LIBRARY_IMPL(deep_gemm, CUDA, m) {
