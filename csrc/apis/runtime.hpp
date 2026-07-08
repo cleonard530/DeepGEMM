@@ -53,9 +53,9 @@ static void set_block_size_multiple_of(const c10::List<int64_t>& value) {
 static void init(const std::string& library_root_path,
                  const std::string& cuda_home_path_by_python) {
 #if DG_TENSORMAP_COMPATIBLE
-    Compiler::prepare_init(library_root_path, cuda_home_path_by_python);
-    KernelRuntime::prepare_init(cuda_home_path_by_python);
-    IncludeParser::prepare_init(library_root_path);
+        Compiler::prepare_init(library_root_path, cuda_home_path_by_python);
+        KernelRuntime::prepare_init(cuda_home_path_by_python);
+        IncludeParser::prepare_init(library_root_path);
 #endif
 }
 

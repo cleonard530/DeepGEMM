@@ -1,10 +1,6 @@
 import os
 import subprocess
 
-# Load the C++ extension and re-export ops through deep_gemm._C.
-from ._C import *  # noqa: F403
-from . import _C
-
 # Set some default environment provided at setup
 try:
     # noinspection PyUnresolvedReferences
@@ -15,12 +11,72 @@ try:
 except ImportError:
     pass
 
-# Some alias for legacy supports
-# TODO: remove these later
+# Configs
+from . import _C
+from ._C import (
+    set_num_sms,
+    get_num_sms,
+    set_tc_util,
+    get_tc_util,
+    set_ignore_compile_dims,
+    set_block_size_multiple_of,
+    set_pdl,
+    get_pdl,
+)
+
+# cuBLASLt Kernels
+from ._C import (
+    cublaslt_gemm_nt, cublaslt_gemm_nn,
+    cublaslt_gemm_tn, cublaslt_gemm_tt,
+)
+
 try:
+    # DeepGEMM Kernels
+    from ._C import (
+        # FP8 FP4 GEMMs
+        fp8_fp4_gemm_nt, fp8_fp4_gemm_nn,
+        fp8_fp4_gemm_tn, fp8_fp4_gemm_tt,
+        m_grouped_fp8_fp4_gemm_nt_contiguous,
+        m_grouped_fp8_fp4_gemm_nn_contiguous,
+        m_grouped_fp8_fp4_gemm_nt_masked,
+        # FP8 GEMMs
+        fp8_gemm_nt, fp8_gemm_nn,
+        fp8_gemm_tn, fp8_gemm_tt,
+        fp8_gemm_nt_skip_head_mid,
+        m_grouped_fp8_gemm_nt_contiguous,
+        m_grouped_fp8_gemm_nn_contiguous,
+        m_grouped_fp8_gemm_nt_masked,
+        k_grouped_fp8_gemm_nt_contiguous,
+        k_grouped_fp8_gemm_tn_contiguous,
+        # BF16 GEMMs
+        bf16_gemm_nt, bf16_gemm_nn,
+        bf16_gemm_tn, bf16_gemm_tt,
+        m_grouped_bf16_gemm_nt_contiguous,
+        m_grouped_bf16_gemm_nn_contiguous,
+        m_grouped_bf16_gemm_nt_masked,
+        k_grouped_bf16_gemm_tn_contiguous,
+        # Einsum kernels
+        einsum,
+        fp8_einsum,
+        # Attention kernels
+        fp8_fp4_mqa_logits,
+        get_paged_mqa_logits_metadata,
+        fp8_fp4_paged_mqa_logits,
+        # Attention kernels (legacy)
+        fp8_mqa_logits,
+        fp8_paged_mqa_logits,
+        # Hyperconnection kernels
+        tf32_hc_prenorm_gemm,
+        # Layout kernels
+        transform_sf_into_required_layout,
+    )
+
+    # Some alias for legacy supports
+    # TODO: remove these later
     fp8_m_grouped_gemm_nt_masked = m_grouped_fp8_gemm_nt_masked
     bf16_m_grouped_gemm_nt_masked = m_grouped_bf16_gemm_nt_masked
-except NameError:
+except ImportError:
+    # Expected behavior for CUDA runtime version before 12.1
     pass
 
 # Mega kernels
