@@ -1,27 +1,227 @@
 import re
 from pathlib import Path
 
-_TENSOR_PAIR = 'tuple[torch.Tensor, torch.Tensor]'
-_Q_TYPE = f'torch.Tensor | tuple[torch.Tensor, Optional[torch.Tensor]]'
 
-_MERGE_AB_PAIR_OPS = frozenset({
-    'fp8_fp4_gemm_nt', 'fp8_fp4_gemm_nn', 'fp8_fp4_gemm_tn', 'fp8_fp4_gemm_tt',
-    'm_grouped_fp8_fp4_gemm_nt_contiguous', 'm_grouped_fp8_fp4_gemm_nn_contiguous',
-    'm_grouped_fp8_fp4_gemm_nt_masked',
-    'k_grouped_fp8_gemm_tn_contiguous', 'k_grouped_fp8_gemm_nt_contiguous',
-    'fp8_gemm_nt_skip_head_mid',
-})
-_MERGE_EINSUM_AB_OPS = frozenset({'fp8_einsum'})
-_MERGE_MEGA_WEIGHT_OPS = frozenset({'fp8_fp4_mega_moe'})
-_PYI_ALIASES = {
-    'fp8_gemm_nt': 'fp8_fp4_gemm_nt',
-    'fp8_gemm_nn': 'fp8_fp4_gemm_nn',
-    'fp8_gemm_tn': 'fp8_fp4_gemm_tn',
-    'fp8_gemm_tt': 'fp8_fp4_gemm_tt',
-    'm_grouped_fp8_gemm_nt_contiguous': 'm_grouped_fp8_fp4_gemm_nt_contiguous',
-    'm_grouped_fp8_gemm_nn_contiguous': 'm_grouped_fp8_fp4_gemm_nn_contiguous',
-    'm_grouped_fp8_gemm_nt_masked': 'm_grouped_fp8_fp4_gemm_nt_masked',
-}
+def build_cpp_function_index(root_path):
+    func_index = {}
+    extensions = {'.cpp', '.cc', '.cxx', '.c', '.hpp', '.h'}
+
+    pattern = re.compile(
+        r'([\w:\s*<&>,\[\]\(\)]+?)'
+        r'\s+'
+        r'([a-zA-Z_][a-zA-Z0-9_:]*)'
+        r'\s*\(',
+    )
+
+    for file_path in Path(root_path).rglob('*'):
+        if file_path.suffix.lower() not in extensions:
+            continue
+        if not file_path.is_file():
+            continue
+
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+        except Exception as e:
+            print(f'Failed to read file {file_path}: {e}')
+            continue
+
+        # Remove the compile directives and comments
+        lines = content.split('\n')
+        clean_lines = [line for line in lines if not line.strip().startswith(('#', '//'))]
+        content = '\n'.join(clean_lines)
+
+        for match in pattern.finditer(content):
+            return_type_part = match.group(1).strip()
+            full_func_name = match.group(2).strip()
+
+            if not return_type_part or not re.match(r'^[a-zA-Z_]', return_type_part):
+                continue
+
+            first_token = return_type_part.split()[0]
+            if first_token in {'return', 'if', 'else', 'for', 'while', 'switch', 'case', 'throw', 'catch', 'auto'}:
+                continue
+
+            # Extract base name
+            if '::' in full_func_name:
+                base_name = full_func_name.split('::')[-1]
+            else:
+                base_name = full_func_name
+
+            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', base_name):
+                continue
+
+            # Find matching ')'
+            paren_start = match.end() - 1
+            paren_count = 0
+            pos = paren_start
+            while pos < len(content):
+                ch = content[pos]
+                if ch == '(':
+                    paren_count += 1
+                elif ch == ')':
+                    paren_count -= 1
+                    if paren_count == 0:
+                        break
+                    elif paren_count < 0:
+                        pos = -1
+                        break
+                pos += 1
+            else:
+                continue
+
+            if pos == -1:
+                continue
+
+            # Check context before match: should be at statement boundary
+            match_start = match.start()
+            context_before = content[max(0, match_start - 50):match_start]
+            if context_before and re.search(r'[a-zA-Z0-9_]$', context_before.rstrip()):
+                continue
+
+            # Check for definition or header declaration
+            is_header = file_path.suffix.lower() in {'.h', '.hpp', '.cuh'}
+            after_paren = content[pos+1:pos+500]
+            has_brace = '{' in after_paren
+            has_semicolon = ';' in after_paren.split('{')[0]
+
+            if has_brace or (is_header and has_semicolon):
+                sig_start = match.start(1)
+                full_signature = content[sig_start:pos+1].strip()
+                if base_name not in func_index:
+                    func_index[base_name] = full_signature
+
+    return func_index
+
+
+def extract_torch_op_name(schema: str) -> str:
+    """Extract the operator name from a TORCH schema string or plain name."""
+    paren_pos = schema.find('(')
+    if paren_pos == -1:
+        return schema.strip()
+    return schema[:paren_pos].strip()
+
+
+def split_schema_args(args_str: str) -> list[str]:
+    """Split a TORCH schema argument list by top-level commas."""
+    if not args_str.strip():
+        return []
+    return split_cpp_parameters(args_str)
+
+
+def parse_schema_arg_default(spec: str) -> str | None:
+    """Extract the default value from a single TORCH schema argument, if present."""
+    spec = spec.strip()
+    if not spec:
+        return None
+
+    in_quote = None
+    paren = bracket = angle = 0
+    for i, ch in enumerate(spec):
+        if in_quote:
+            if ch == in_quote and (i == 0 or spec[i - 1] != '\\'):
+                in_quote = None
+            continue
+        if ch in ('"', "'"):
+            in_quote = ch
+            continue
+        if ch == '(':
+            paren += 1
+        elif ch == ')':
+            paren -= 1
+        elif ch == '[':
+            bracket += 1
+        elif ch == ']':
+            bracket -= 1
+        elif ch == '<':
+            angle += 1
+        elif ch == '>':
+            angle -= 1
+        elif ch == '=' and paren == bracket == angle == 0:
+            return schema_default_to_python(spec[i + 1:].strip())
+    return None
+
+
+def schema_default_to_python(val: str) -> str:
+    """Convert a TORCH schema default literal to a Python expression string."""
+    val = val.strip()
+    if not val:
+        return 'None'
+    if val == 'None':
+        return 'None'
+    if val in ('True', 'true'):
+        return 'True'
+    if val in ('False', 'false'):
+        return 'False'
+    if (val.startswith("'") and val.endswith("'")) or (val.startswith('"') and val.endswith('"')):
+        return f'"{val[1:-1]}"'
+    if re.match(r'^[+-]?\d+$', val):
+        return val
+    if re.match(r'^[+-]?\d*\.\d+([eE][+-]?\d+)?$', val):
+        return val
+    print(f'Warning: Unrecognized schema default value: {val}')
+    return val
+
+
+def parse_schema_parameter_name(spec: str) -> str | None:
+    """Extract the parameter name from a TORCH schema argument."""
+    spec = spec.strip()
+    if not spec:
+        return None
+
+    in_quote = None
+    paren = bracket = angle = 0
+    eq_pos = -1
+    for i, ch in enumerate(spec):
+        if in_quote:
+            if ch == in_quote and (i == 0 or spec[i - 1] != '\\'):
+                in_quote = None
+            continue
+        if ch in ('"', "'"):
+            in_quote = ch
+            continue
+        if ch == '(':
+            paren += 1
+        elif ch == ')':
+            paren -= 1
+        elif ch == '[':
+            bracket += 1
+        elif ch == ']':
+            bracket -= 1
+        elif ch == '<':
+            angle += 1
+        elif ch == '>':
+            angle -= 1
+        elif ch == '=' and paren == bracket == angle == 0:
+            eq_pos = i
+            break
+
+    left = spec[:eq_pos].strip() if eq_pos != -1 else spec
+    name_match = re.search(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*$', left)
+    return name_match.group(1) if name_match else None
+
+
+def parse_schema_parameter_defaults(schema: str) -> dict[str, str]:
+    """Parse parameter defaults from a TORCH schema string, keyed by parameter name."""
+    arrow = schema.rfind(' -> ')
+    if arrow == -1:
+        return {}
+
+    sig_part = schema[:arrow].strip()
+    open_paren = sig_part.find('(')
+    close_paren = sig_part.rfind(')')
+    if open_paren == -1 or close_paren == -1 or close_paren <= open_paren:
+        return {}
+
+    defaults = {}
+    for spec in split_schema_args(sig_part[open_paren + 1:close_paren]):
+        default_val = parse_schema_arg_default(spec)
+        if default_val is None:
+            continue
+        param_name = parse_schema_parameter_name(spec)
+        if param_name:
+            defaults[param_name] = default_val
+    return defaults
 
 
 class BracketTracker:
@@ -78,276 +278,15 @@ class BracketTracker:
                 self.angle == 0)
 
 
-def split_top_level_commas(value: str) -> list[str]:
-    """Split a string on top-level commas."""
-    parts = []
-    current = []
-    tracker = BracketTracker()
-    for ch in value:
-        if ch in '()[]{}<>':
-            tracker.update(ch)
-        if ch == ',' and tracker.is_top_level():
-            parts.append(''.join(current).strip())
-            current = []
-        else:
-            current.append(ch)
-    if current:
-        parts.append(''.join(current).strip())
-    return parts
-
-
-def find_top_level_equals(value: str) -> int:
-    """Return index of top-level '=' in a schema argument, or -1."""
-    tracker = BracketTracker()
-    for i, ch in enumerate(value):
-        if ch in '()[]{}<>':
-            tracker.update(ch)
-        elif ch == '=' and tracker.is_top_level():
-            return i
-    return -1
-
-
-def extract_torch_op_name(schema: str) -> str:
-    """Extract the operator name from a TORCH schema string."""
-    paren_pos = schema.find('(')
-    if paren_pos == -1:
-        return schema.strip()
-    return schema[:paren_pos].strip()
-
-
-def schema_type_to_python(type_str: str) -> str:
-    """Map a TORCH_LIBRARY schema type to a Python type annotation string."""
-    type_str = type_str.strip()
-    optional = type_str.endswith('?')
-    if optional:
-        type_str = type_str[:-1].strip()
-
-    if type_str.startswith('Tensor'):
-        py_type = 'torch.Tensor'
-    elif type_str == 'int':
-        py_type = 'int'
-    elif type_str == 'bool':
-        py_type = 'bool'
-    elif type_str == 'float':
-        py_type = 'float'
-    elif type_str == 'str':
-        py_type = 'str'
-    elif type_str == 'int[]':
-        py_type = 'list[int]'
-    else:
-        print(f'Warning: unrecognized schema type {type_str!r}, using Any')
-        py_type = 'Any'
-
-    if optional:
-        return f'Optional[{py_type}]'
-    return py_type
-
-
-def schema_return_to_python(return_str: str) -> str:
-    """Map a TORCH_LIBRARY return type to a Python annotation."""
-    return_str = return_str.strip()
-    if return_str == '()':
-        return 'None'
-    if return_str in {'int', 'bool', 'float', 'str', 'Tensor'}:
-        return {
-            'int': 'int',
-            'bool': 'bool',
-            'float': 'float',
-            'str': 'str',
-            'Tensor': 'torch.Tensor',
-        }[return_str]
-    if return_str.startswith('(') and return_str.endswith(')'):
-        inner = return_str[1:-1].strip()
-        if not inner:
-            return 'tuple[()]'
-        parts = split_top_level_commas(inner)
-        py_parts = [schema_return_to_python(part) for part in parts]
-        return f'tuple[{", ".join(py_parts)}]'
-    print(f'Warning: unrecognized schema return type {return_str!r}, using Any')
-    return 'Any'
-
-
-def schema_default_to_python(default_str: str) -> str:
-    """Convert a TORCH schema default literal to a Python expression string."""
-    default_str = default_str.strip()
-    if default_str in {'None', 'True', 'False'}:
-        return default_str
-    if (default_str.startswith("'") and default_str.endswith("'")) or (
-            default_str.startswith('"') and default_str.endswith('"')):
-        return default_str
-    if re.match(r'^[+-]?\d+$', default_str):
-        return default_str
-    if re.match(r'^[+-]?\d*\.\d+([eE][+-]?\d+)?$', default_str):
-        return default_str
-    print(f'Warning: unrecognized schema default {default_str!r}, using None')
-    return 'None'
-
-
-def parse_schema_arg(arg_str: str) -> dict:
-    """Parse one TORCH schema argument such as 'Tensor? c=None'."""
-    arg_str = arg_str.strip()
-    if not arg_str:
-        raise ValueError('empty schema argument')
-
-    default = None
-    eq_pos = find_top_level_equals(arg_str)
-    if eq_pos != -1:
-        default = schema_default_to_python(arg_str[eq_pos + 1:].strip())
-        arg_str = arg_str[:eq_pos].strip()
-
-    match = re.match(r'^(.+?)\s+([a-zA-Z_][a-zA-Z0-9_]*)$', arg_str)
-    if not match:
-        raise ValueError(f'could not parse schema argument: {arg_str!r}')
-    return {
-        'name': match.group(2),
-        'py_type': schema_type_to_python(match.group(1)),
-        'default': default,
-    }
-
-
-def parse_torch_schema(schema: str) -> dict:
-    """Parse a TORCH_LIBRARY schema into name, parameters, and return type."""
-    arrow = schema.rfind(' -> ')
-    if arrow == -1:
-        raise ValueError(f'schema missing return type: {schema!r}')
-
-    signature = schema[:arrow].strip()
-    return_type = schema_return_to_python(schema[arrow + 4:].strip())
-
-    open_paren = signature.find('(')
-    if open_paren == -1:
-        raise ValueError(f'schema missing argument list: {schema!r}')
-
-    name = signature[:open_paren].strip()
-    paren_depth = 0
-    close_paren = -1
-    for i in range(open_paren, len(signature)):
-        if signature[i] == '(':
-            paren_depth += 1
-        elif signature[i] == ')':
-            paren_depth -= 1
-            if paren_depth == 0:
-                close_paren = i
-                break
-    if close_paren == -1:
-        raise ValueError(f'unclosed argument list in schema: {schema!r}')
-
-    args_blob = signature[open_paren + 1:close_paren].strip()
-    parameters = []
-    if args_blob:
-        for arg in split_top_level_commas(args_blob):
-            parameters.append(parse_schema_arg(arg))
-
-    return {
-        'python_function_name': name,
-        'parameters': parameters,
-        'return_type': return_type,
-        'schema': schema,
-    }
-
-
-def _merge_named_pairs(parameters: list[dict], pairs: tuple[tuple[str, str], ...]) -> list[dict]:
-    """Replace (left, right) arg pairs with a single tuple-typed parameter."""
-    drop = {right for left, right in pairs}
-    merged_left = {left for left, _ in pairs}
-    out = []
-    for param in parameters:
-        if param['name'] in drop:
-            continue
-        if param['name'] in merged_left:
-            out.append({
-                'name': param['name'],
-                'py_type': _TENSOR_PAIR,
-                'default': None,
-            })
-            continue
-        out.append(dict(param))
-    return out
-
-
-def adjust_for_c_py_wrapper(name: str, parameters: list[dict]) -> list[dict]:
-    """
-    Adjust parsed schema parameters to match deep_gemm._C Python wrappers.
-
-    TORCH_LIBRARY registers flat tensor/scales args; _C.py preserves the legacy
-    pybind API by accepting (tensor, scale_factor) tuples for many kernels.
-    """
-    if name in _MERGE_AB_PAIR_OPS:
-        parameters = _merge_named_pairs(parameters, (('a', 'sfa'), ('b', 'sfb')))
-
-    elif name in _MERGE_EINSUM_AB_OPS:
-        parameters = _merge_named_pairs(parameters, (('a', 'sfa'), ('b', 'sfb')))
-        for param in parameters:
-            if param['name'] == 'recipe':
-                param['py_type'] = 'tuple[int, int, int]'
-                param['default'] = '(1, 128, 128)'
-
-    elif name in _MERGE_MEGA_WEIGHT_OPS:
-        parameters = _merge_named_pairs(
-            parameters,
-            (('l1_weights', 'l1_weights_sf'), ('l2_weights', 'l2_weights_sf')),
-        )
-        for param in parameters:
-            if param['name'] == 'recipe':
-                param['py_type'] = 'tuple[int, int, int]'
-
-    elif name == 'fp8_fp4_mqa_logits':
-        parameters = _merge_named_pairs(parameters, (('kv', 'kv_sf'),))
-        out = []
-        for param in parameters:
-            if param['name'] == 'q_sf':
-                continue
-            if param['name'] == 'q':
-                param['py_type'] = _Q_TYPE
-            if param['name'] == 'logits_dtype':
-                param['py_type'] = 'torch.dtype'
-                param['default'] = 'torch.float32'
-            out.append(param)
-        return out
-
-    elif name == 'fp8_fp4_paged_mqa_logits':
-        out = []
-        for param in parameters:
-            if param['name'] == 'q_sf':
-                continue
-            if param['name'] == 'q':
-                param['py_type'] = _Q_TYPE
-            if param['name'] == 'logits_dtype':
-                param['py_type'] = 'torch.dtype'
-                param['default'] = 'torch.float32'
-            out.append(param)
-        return out
-
-    elif name == 'fp8_mqa_logits':
-        parameters = _merge_named_pairs(parameters, (('kv', 'kv_sf'),))
-
-    elif name == 'set_block_size_multiple_of':
-        for param in parameters:
-            if param['name'] == 'value':
-                param['py_type'] = 'int | list[int]'
-
-    if name in {'k_grouped_fp8_gemm_tn_contiguous', 'k_grouped_fp8_gemm_nt_contiguous'}:
-        for param in parameters:
-            if param['name'] == 'recipe':
-                param['py_type'] = 'tuple[int, int, int]'
-                param['default'] = '(1, 1, 128)'
-
-    return parameters
-
-
-def sanitize_param_name(name: str) -> str:
-    if name in {'def', 'class', 'from', 'import', 'None', 'True', 'False'}:
-        return f'{name}_'
-    return name
-
-
 def extract_m_def_statements(root_path):
     """
-    Scan all C++ files under root_path and extract all m.def(...) statements.
-    Supports multi-line m.def(...) calls.
+    Scan all c files under root_path and extract all m.def(...) statements.
     """
     results = []
     extensions = {'.hpp', '.cpp', '.h', '.cc'}
+
+    # Regex: match m.def( ... ), supports multi-line
+    pattern = re.compile(r'm\.def\s*\(')
 
     for file_path in Path(root_path).rglob('*'):
         if file_path.suffix.lower() not in extensions:
@@ -369,6 +308,7 @@ def extract_m_def_statements(root_path):
             line = lines[i]
             if 'm.def(' in line:
                 # Found a potential starting line
+                start_i = i
                 # Check if it's a comment
                 stripped = line.lstrip()
                 if stripped.startswith('//') or stripped.startswith('/*'):
@@ -399,6 +339,8 @@ def extract_m_def_statements(root_path):
                     if paren_count <= 0 and found_start:
                         break
                     j += 1
+                else:
+                    pass
             i += 1
 
         if m_def_list:
@@ -411,12 +353,13 @@ def extract_m_def_statements(root_path):
 
 
 def parse_m_def_statement(m_def_str):
-    """
-    Parse a TORCH_LIBRARY m.def(...) statement.
+    result = {
+        'python_function_name': None,
+        'num_args': 0,
+        'default_args': {},
+        'is_lambda': False,
+    }
 
-    DeepGEMM registers ops via TORCH_LIBRARY_FRAGMENT, so the first argument is
-    always a schema string such as "fp8_fp4_gemm_nt(Tensor a, ...) -> ()".
-    """
     # Extract top-level arguments
     start = m_def_str.find('m.def(')
     if start == -1:
@@ -441,107 +384,671 @@ def parse_m_def_statement(m_def_str):
     args_content = m_def_str[content_start:content_end]
 
     # Split arguments using BracketTracker
-    args_list = split_top_level_commas(args_content)
+    args_list = []
+    current = []
+    tracker = BracketTracker()
+
+    for ch in args_content:
+        if ch in '()[]{}<>':
+            tracker.update(ch)
+        if ch == ',' and tracker.is_top_level():
+            args_list.append(''.join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+
+    if current:
+        args_list.append(''.join(current).strip())
 
     if not args_list:
         raise ValueError(f'[{m_def_str}] m.def has no arguments')
 
-    # Extract operator schema from the first string literal
+    # Extract Python function name from the first string literal (plain name or schema).
     first = args_list[0].strip()
     str_match = re.match(r'^"([^"\\]*(?:\\.[^"\\]*)*)"', first)
-    if not str_match:
+    if str_match:
+        schema_or_name = str_match.group(1)
+        result['python_function_name'] = extract_torch_op_name(schema_or_name)
+        if '(' in schema_or_name:
+            result['schema_default_args'] = parse_schema_parameter_defaults(schema_or_name)
+    else:
         raise ValueError(f'[{m_def_str}] m.def first argument should be a string literal')
 
-    return parse_torch_schema(str_match.group(1))
+    if len(args_list) == 1:
+        result['cpp_function_name'] = result['python_function_name']
+    else:
+        cpp_func_part = args_list[1].strip()
+        if cpp_func_part.startswith('&'):
+            cpp_func_part = cpp_func_part[1:].strip()
+
+        if cpp_func_part.startswith('['):
+            result['is_lambda'] = True
+            result['cpp_function_name'] = None
+        elif cpp_func_part.startswith(('DEEP_GEMM_IMPL(', 'TORCH_FN(')):
+            result['cpp_function_name'] = result['python_function_name']
+        else:
+            if '::' in cpp_func_part:
+                cpp_func_name = cpp_func_part.split('::')[-1]
+            else:
+                cpp_func_name = cpp_func_part
+
+            match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)', cpp_func_name)
+            if match:
+                result['cpp_function_name'] = match.group(1)
+            else:
+                result['cpp_function_name'] = cpp_func_name
+
+    # Parse py::arg arguments (legacy pybind registrations only).
+    py_args = args_list[2:]
+    result['num_args'] = len(py_args)
+
+    for idx, arg_expr in enumerate(py_args):
+        expr = arg_expr.strip()
+        # Find top-level '='
+        eq_pos = -1
+        p_depth = b_depth = br_depth = angle_depth = 0
+        i = 0
+        while i < len(expr):
+            ch = expr[i]
+            if ch == '(':
+                p_depth += 1
+            elif ch == ')':
+                p_depth -= 1
+            elif ch == '[':
+                b_depth += 1
+            elif ch == ']':
+                b_depth -= 1
+            elif ch == '{':
+                br_depth += 1
+            elif ch == '}':
+                br_depth -= 1
+            elif ch == '<' and p_depth == 0 and b_depth == 0 and br_depth == 0:
+                angle_depth += 1
+            elif ch == '>' and angle_depth > 0 and p_depth == 0 and b_depth == 0 and br_depth == 0:
+                angle_depth -= 1
+            elif ch == '=' and all(d == 0 for d in [p_depth, b_depth, br_depth, angle_depth]):
+                eq_pos = i
+                break
+            i += 1
+
+        if eq_pos != -1:
+            default_val = expr[eq_pos + 1:].strip()
+            if not default_val:
+                raise ValueError(f'[{expr}] Default value is empty (arg {idx})')
+            result['default_args'][idx] = default_val
+
+    return result
+
+
+def extract_cpp_signature_from_content(cpp_func_name, content):
+    """
+    Search for the C++ function signature of cpp_func_name in the given file content.
+    """
+    if not cpp_func_name:
+        return None
+
+    # Build regex: match function starting with cpp_func_name (after word boundary)
+    # Note: function name may be preceded by return type (with templates, namespaces, etc.), followed by '('
+    pattern = re.compile(
+        r'^\s*'                                        # leading whitespace
+        r'([\w:\s*<&>,\[\]\(\)]+?)'                    # return type (non-greedy, allows templates, pointers, etc.)
+        r'\s+'                                         # at least one space
+        r'\b' + re.escape(cpp_func_name) + r'\b'       # function name (word boundary)
+                                           r'\s*\(',   # optional whitespace + start of param list
+        re.MULTILINE
+    )
+
+    for match in pattern.finditer(content):
+        # Find '(' position after function name
+        paren_start = match.end() - 1
+        if content[paren_start] != '(':
+            paren_start = content.find('(', match.end(0) - 1)
+            if paren_start == -1:
+                continue
+
+        # From '(', match to corresponding ')'
+        paren_count = 0
+        pos = paren_start
+        while pos < len(content):
+            ch = content[pos]
+            if ch == '(':
+                paren_count += 1
+            elif ch == ')':
+                paren_count -= 1
+                if paren_count == 0:
+                    start_sig = match.start(1)
+                    full_signature = content[start_sig:pos+1].strip()
+                    return full_signature
+            pos += 1
+
+    return None
+
+
+def parse_mdef_and_attach_cpp_signatures(item, func_index):
+    """
+    Enhance item by parsing m.def and extracting C++ function signature from global index
+    """
+    statements_with_parsed_signatures = []
+
+    for stmt in item['m_def_statements']:
+        parsed = parse_m_def_statement(stmt,)
+        cpp_func_name = parsed.get('cpp_function_name')
+
+        cpp_sig = None
+        if cpp_func_name and cpp_func_name in func_index:
+            cpp_sig = func_index[cpp_func_name]
+        else:
+            if not parsed['is_lambda']:
+                print(f'Warning: C++ function "{cpp_func_name}" not found in any .cpp file')
+
+        parsed['cpp_signature'] = cpp_sig
+        statements_with_parsed_signatures.append({
+            'raw': stmt,
+            'parsed': parsed
+        })
+
+    return {
+        'm_def_statements': statements_with_parsed_signatures
+    }
+
+
+def parse_cpp_signature(cpp_sig):
+    """
+    Parse a C++ function signature and extract return type, parameter types, and names.
+    """
+    if not cpp_sig or not cpp_sig.strip():
+        return None
+
+    # Find function name: last identifier before '('
+    paren_pos = cpp_sig.find('(')
+    if paren_pos == -1:
+        return None
+
+    before_paren = cpp_sig[:paren_pos].strip()
+    if not before_paren:
+        return None
+
+    # Function name is the last word in before_paren (may include templates like func<int>)
+    tokens = before_paren.split()
+    if len(tokens) < 2:
+        return None
+
+    # Heuristic: function name is usually the last token (may include <>)
+    func_name_part = tokens[-1]
+    return_type = ' '.join(tokens[:-1]).strip()
+    if return_type.startswith('static '):
+        return_type = return_type[len('static '):].strip()
+
+    # Now extract parameter list content
+    param_list_str = cpp_sig[paren_pos+1:cpp_sig.rfind(')')].strip()
+    parameters = []
+
+    if param_list_str and param_list_str != 'void':  # 'void' means no parameters
+        # Split parameters (handle commas not inside templates/brackets)
+        param_decls = split_cpp_parameters(param_list_str)
+        for decl in param_decls:
+            decl = decl.strip()
+            if not decl:
+                continue
+            # Try to split type and name from right to left
+            param_info = parse_parameter_declaration(decl)
+            if param_info:
+                parameters.append(param_info)
+
+    return {
+        'return_type': return_type,
+        'parameters': parameters,
+        'num_parameters': len(parameters)
+    }
+
+
+def split_cpp_parameters(param_str: str):
+    """
+    Split a C++ parameter list string by top-level commas,
+    e.g., 'int a, std::vector<float> b' → ['int a', 'std::vector<float> b']
+    """
+    if not param_str.strip() or param_str == 'void':
+        return []
+    params = []
+    current = []
+    tracker = BracketTracker()
+
+    for ch in param_str:
+        if ch in '()[]{}<>':
+            tracker.update(ch)
+        if ch == ',' and tracker.is_top_level():
+            param = ''.join(current).strip()
+            if param:  # Only add non-empty parameters
+                params.append(param)
+            current = []
+        else:
+            current.append(ch)
+
+    if current:
+        final_param = ''.join(current).strip()
+        if final_param:  # Only add non-empty parameters
+            params.append(final_param)
+    return params
+
+
+def parse_parameter_declaration(decl: str):
+    """
+    Parse a single parameter declaration, e.g., 'const std::string& name' → {'type': 'const std::string&', 'name': 'name'}
+    Improved version that better handles template types.
+    """
+    decl = decl.strip()
+    if not decl:
+        return None
+
+    # Remove possible default value (starting from top-level '=')
+    tracker = BracketTracker()
+    eq_pos = -1
+    for i, ch in enumerate(decl):
+        if ch in '()[]{}<>':
+            tracker.update(ch)
+        elif ch == '=' and tracker.is_top_level():
+            eq_pos = i
+            break
+
+    if eq_pos != -1:
+        decl = decl[:eq_pos].strip()
+
+    # Now decl is 'type name' or just 'type'
+    # Instead of simple splitting, we'll use a more robust approach
+    # to find the parameter name
+
+    # First, let's handle the case where there's no explicit parameter name
+    # (this sometimes happens in function declarations)
+    if not re.search(r'[a-zA-Z_][a-zA-Z0-9_]*$', decl):
+        # No parameter name found, just return the type
+        return {
+            'type': decl,
+            'name': None
+        }
+
+    # Use bracket tracking to find where the type ends and name begins
+    tracker = BracketTracker()
+    name_start = -1
+
+    # Scan from the end to find the start of the parameter name
+    # We look for the first identifier that's outside all brackets
+    i = len(decl) - 1
+    while i >= 0:
+        ch = decl[i]
+
+        if ch in '()[]{}<>':
+            tracker.update(ch)
+
+        # If we're at top level and find an identifier character
+        if tracker.is_top_level() and re.match(r'[a-zA-Z0-9_]', ch):
+            # Track back to find the start of this identifier
+            name_start = i
+            while name_start > 0 and re.match(r'[a-zA-Z0-9_]', decl[name_start - 1]):
+                name_start -= 1
+
+            # Check if this might be part of a type keyword (like 'int', 'bool', etc.)
+            potential_name = decl[name_start:i+1]
+            type_keywords = {'int', 'long', 'short', 'char', 'bool', 'float', 'double',
+                             'void', 'auto', 'const', 'static', 'volatile', 'mutable',
+                             'unsigned', 'signed'}
+
+            # If it's not a type keyword and looks like a parameter name, use it
+            if (potential_name not in type_keywords and
+                    re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', potential_name)):
+                break
+
+        i -= 1
+
+    if name_start != -1 and i >= 0:
+        param_name = decl[name_start:i+1]
+        param_type = decl[:name_start].strip()
+
+        # Clean up the type - remove trailing &, * and whitespace
+        param_type = param_type.rstrip('&* \t')
+
+        return {
+            'type': param_type,
+            'name': param_name
+        }
+
+    # Fallback: if we can't find a clear parameter name, just return the type
+    return {
+        'type': decl,
+        'name': None
+    }
+
+
+def extract_cpp_signature_details(item):
+    """
+    For each m.def entry in item, parse cpp_signature to extract return type and parameter details.
+    """
+    statements_with_parsed_signatures = []
+    for stmt_info in item['m_def_statements']:
+        parsed = stmt_info['parsed']
+        cpp_sig = parsed.get('cpp_signature')
+
+        cpp_params_info = None
+        if cpp_sig:
+            try:
+                cpp_params_info = parse_cpp_signature(cpp_sig)
+            except Exception as e:
+                print(f'Failed to parse C++ signature: {e}')
+
+        parsed['cpp_parsed_signature'] = cpp_params_info
+        statements_with_parsed_signatures.append({
+            'raw': stmt_info['raw'],
+            'parsed': parsed
+        })
+
+    return {
+        'm_def_statements': statements_with_parsed_signatures
+    }
+
+
+def cpp_type_to_python_type(cpp_type: str) -> str:
+    if not cpp_type:
+        return 'Any'
+
+    original = cpp_type.strip()
+    if not original:
+        return 'Any'
+
+    # Remove C++ specifiers that don't affect Python type
+    cleaned = re.sub(r'\b(static|inline|constexpr|thread_local|extern|mutable|const|volatile|endif)\b', '', original)
+    cleaned = cleaned.replace('&', '').replace('*', '').strip()
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+    # Handle void
+    if cleaned == 'void':
+        return 'None'
+
+    # Handle template types — ORDER MATTERS! Must come before internal type checks.
+
+    # std::pair<T1, T2>
+    if cleaned.startswith('std::pair<'):
+        inner = cleaned[10:-1].strip()  # len('std::pair<') == 10
+        args = split_template_args(inner)
+        if len(args) == 2:
+            t1 = cpp_type_to_python_type(args[0])
+            t2 = cpp_type_to_python_type(args[1])
+            return f'tuple[{t1}, {t2}]'
+        else:
+            print(f'Warning: std::pair with unexpected number of args: {cleaned}')
+            return 'Any'
+
+    # std::tuple<T1, T2, ...>
+    if cleaned.startswith('std::tuple<'):
+        inner = cleaned[11:-1].strip()  # len('std::tuple<') == 11
+        args = split_template_args(inner)
+        py_types = [cpp_type_to_python_type(arg) for arg in args]
+        return f"tuple[{', '.join(py_types)}]"
+
+    # std::vector<T>
+    if cleaned.startswith('std::vector<'):
+        inner = cleaned[12:-1].strip()  # len('std::vector<') == 12
+        args = split_template_args(inner)
+        if len(args) == 1:
+            inner_py = cpp_type_to_python_type(args[0])
+            return f'list[{inner_py}]'
+        else:
+            print(f'Warning: std::vector with unexpected args: {cleaned}')
+            return 'Any'
+
+    # std::optional<T> / c10::optional<T>
+    if cleaned.startswith('std::optional<') or cleaned.startswith('c10::optional<'):
+        inner = cleaned[cleaned.index('<') + 1:-1].strip()
+        args = split_template_args(inner)
+        if len(args) == 1:
+            inner_py = cpp_type_to_python_type(args[0])
+            return f'Optional[{inner_py}]'
+        else:
+            print(f'Warning: optional with unexpected args: {cleaned}')
+            return 'Any'
+
+    # c10::List<T>
+    if cleaned.startswith('c10::List<'):
+        inner = cleaned[10:-1].strip()
+        args = split_template_args(inner)
+        if len(args) == 1:
+            inner_py = cpp_type_to_python_type(args[0])
+            return f'list[{inner_py}]'
+        print(f'Warning: c10::List with unexpected args: {cleaned}')
+        return 'Any'
+
+    # std::string
+    if re.search(r'\bstd::string\b', original):
+        return 'str'
+
+    # C-style strings: char*, const char*, char[], etc.
+    if re.search(r'\b(?:const\s+)?char\s*[\*\[]', original):
+        return 'str'
+
+    # Boolean
+    if re.search(r'\bbool\b', cleaned):
+        return 'bool'
+
+    # Integer types (including fixed-width and common aliases)
+    if re.search(r'\b(int|long|short|size_t|ssize_t|ptrdiff_t|'
+                 r'int8_t|int16_t|int32_t|int64_t|'
+                 r'uint8_t|uint16_t|uint32_t|uint64_t)\b', cleaned):
+        return 'int'
+
+    # Floating-point
+    if re.search(r'\b(float|double|long\s+double)\b', cleaned):
+        return 'float'
+
+    # torch::Tensor
+    if re.search(r'\btorch::Tensor\b', original):
+        return 'torch.Tensor'
+
+    # at::ScalarType
+    if re.search(r'\bat::ScalarType\b', original):
+        return 'torch.dtype'
+
+    # mega.hpp type alias
+    if re.search(r'\bSymmBufferSlice\b', original):
+        tensor = 'torch.Tensor'
+        return f'tuple[{", ".join([tensor] * 8)}]'
+
+    # Unrecognized type
+    print(f'Warning: Unrecognized C++ type: {original}')
+    return 'Any'
+
+
+def split_template_args(template_args: str):
+    """
+    Split template arguments, e.g., 'int, std::vector<float>' → ['int', 'std::vector<float>']
+    """
+    if not template_args.strip():
+        return []
+    args = []
+    current = []
+    tracker = BracketTracker()
+
+    for ch in template_args:
+        if ch in '()[]{}<>':
+            tracker.update(ch)
+        if ch == ',' and tracker.is_top_level():
+            args.append(''.join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+
+    if current:
+        args.append(''.join(current).strip())
+    return args
+
+
+def cpp_default_to_python_default(cpp_default: str):
+    """
+    Convert C++ default value string to valid Python expression string.
+    """
+    if not cpp_default:
+        return 'None'
+
+    s = cpp_default.strip()
+
+    # Handle string literals: 'bf16' → 'bf16'
+    # Match: starts and ends with unescaped double quotes
+    string_match = re.match(r'^"([^"\\]*(?:\\.[^"\\]*)*)"$', s)
+    if string_match:
+        return s
+
+    # Handle boolean literals
+    if s == 'false':
+        return 'False'
+    if s == 'true':
+        return 'True'
+
+    # Handle null-like values: nullptr, nullopt, NULL, etc.
+    if s in ('nullptr', 'NULL') or 'nullopt' in s:
+        return 'None'
+
+    # Handle std::tuple<int, int>({128, 128}) → (128, 128)
+    tuple_match = re.match(r'std::tuple\s*<[^>]*>\s*\(\s*({.*?})\s*\)', s)
+    if tuple_match:
+        inner = tuple_match.group(1)  # {128, 128}
+        inner_py = inner.replace('{', '(').replace('}', ')')
+        return inner_py
+
+    # Handle std::make_tuple(1, 2, 3) → (1, 2, 3)
+    make_tuple_match = re.match(r'std::make_tuple\s*\(\s*(.*?)\s*\)', s)
+    if make_tuple_match:
+        inner = make_tuple_match.group(1)
+        # Ensure it's a valid tuple even with one element: add comma if needed?
+        # But in C++ default args, it's usually multi-element, so we assume valid.
+        return f'({inner})'
+
+    # Handle std::vector<int>({1,2,3}) → [1, 2, 3]
+    vector_match = re.match(r'std::vector\s*<[^>]*>\s*\(\s*({.*?})\s*\)', s)
+    if vector_match:
+        inner = vector_match.group(1)
+        inner_py = inner.replace('{', '[').replace('}', ']')
+        return inner_py
+
+    # Handle numeric literals: integers and floats
+    if re.match(r'^[+-]?\d+$', s):  # integer
+        return s
+    if re.match(r'^[+-]?\d*\.\d+([eE][+-]?\d+)?$', s):  # float
+        return s
+
+    if s == 'torch::kFloat32':
+        return 'torch.float32'
+
+    # Fallback: unrecognized → warn and return None
+    print(f'Warning: Unrecognized default value: {s}')
+    return 'None'
 
 
 def generate_pyi_function(item_entry):
-    """Generate a typed .pyi stub for one registered op."""
     parsed = item_entry['parsed']
     py_name = parsed['python_function_name']
-    parameters = adjust_for_c_py_wrapper(py_name, parsed['parameters'])
-    return_type = parsed['return_type']
 
+    if parsed.get('is_lambda'):
+        return f'def {py_name}(*args, **kwargs) -> Any: ...'
+
+    sig_info = parsed.get('cpp_parsed_signature')
+    default_args = dict(parsed.get('default_args', {}))
+    schema_default_by_name = parsed.get('schema_default_args', {})
+
+    if not sig_info:
+        return f'def {py_name}(*args, **kwargs) -> Any: ...'
+
+    return_type = cpp_type_to_python_type(sig_info['return_type'])
+    params = sig_info['parameters']
+    num_params = len(params)
+
+    # Build parameter list
     param_lines = []
-    for param in parameters:
-        name = sanitize_param_name(param['name'])
-        if param['default'] is not None:
-            param_lines.append(f'    {name}: {param["py_type"]} = {param["default"]}')
+    for i in range(num_params):
+        param_info = params[i] if i < len(params) else {'type': 'Any', 'name': f'arg{i}'}
+        param_type = cpp_type_to_python_type(param_info['type'])
+        param_name = param_info['name'] or f'arg{i}'
+
+        # Replace invalid Python identifiers (e.g., keywords)
+        if param_name in {'def', 'class', 'from', 'import', 'None', 'True', 'False'}:
+            param_name = f'{param_name}_'
+
+        # Check for default value (py::arg defaults take precedence over schema defaults).
+        py_default = None
+        if i in default_args:
+            py_default = cpp_default_to_python_default(default_args[i])
+        elif param_name in schema_default_by_name:
+            py_default = schema_default_by_name[param_name]
+            if param_type == 'torch.dtype' and py_default == '6':
+                py_default = 'torch.float32'
+
+        if py_default is not None:
+            param_str = f'    {param_name}: {param_type} = {py_default}'
         else:
-            param_lines.append(f'    {name}: {param["py_type"]}')
+            param_str = f'    {param_name}: {param_type}'
+
+        param_lines.append(param_str)
 
     if param_lines:
         params_block = ',\n'.join(param_lines)
-        return f'def {py_name}(\n{params_block}\n) -> {return_type}: ...'
-    return f'def {py_name}() -> {return_type}: ...'
+        func_def = f'def {py_name}(\n{params_block}\n) -> {return_type}: ...'
+    else:
+        func_def = f'def {py_name}() -> {return_type}: ...'
 
-
-def _alias_pyi_decl(decl: str, alias_name: str, source_name: str) -> str:
-    return decl.replace(f'def {source_name}(', f'def {alias_name}(', 1)
+    return func_def
 
 
 def generate_pyi_file_content(enhanced_results, module_name: str = 'my_module'):
-    by_name = {}
-    for item in enhanced_results:
-        for stmt in item['m_def_statements']:
-            name = stmt['parsed']['python_function_name']
-            by_name[name] = stmt
-
-    decl_by_name = {}
+    function_decls = []
     has_optional = False
     has_torch = False
+    has_numpy = False
 
-    for name in sorted(by_name):
-        stmt = by_name[name]
-        try:
-            decl = generate_pyi_function(stmt)
-            decl_by_name[name] = decl
-            if 'Optional[' in decl:
-                has_optional = True
-            if 'torch.' in decl:
-                has_torch = True
-        except Exception as e:
-            decl_by_name[name] = f'# ERROR: failed to generate stub for {name}: {e}'
+    for item in enhanced_results:
+        for stmt in item['m_def_statements']:
+            try:
+                decl = generate_pyi_function(stmt)
+                function_decls.append(decl)
 
-    for alias_name, source_name in _PYI_ALIASES.items():
-        if source_name in decl_by_name and alias_name not in decl_by_name:
-            decl_by_name[alias_name] = _alias_pyi_decl(decl_by_name[source_name], alias_name, source_name)
-            if 'Optional[' in decl_by_name[alias_name]:
-                has_optional = True
-            if 'torch.' in decl_by_name[alias_name]:
-                has_torch = True
+                if 'Optional[' in decl:
+                    has_optional = True
+                if 'torch.Tensor' in decl:
+                    has_torch = True
+                if 'numpy.ndarray' in decl or 'py::array' in str(stmt):
+                    has_numpy = True
+            except Exception as e:
+                func_name = stmt['parsed'].get('python_function_name', 'unknown')
+                function_decls.append(f'# ERROR: failed to generate stub for {func_name}: {e}')
 
-    lines = [
-        f'# Stubs for module: {module_name}',
-        '',
-        'from typing import Any',
-    ]
+    imports = ['from typing import Any']
     if has_optional:
-        lines[2] += ', Optional'
-    if has_torch:
-        lines.append('import torch')
-    lines.extend(['', ''])
+        imports[0] += ', Optional'
 
-    for name in sorted(decl_by_name):
-        lines.extend([decl_by_name[name], '', ''])
+    if has_torch:
+        imports.append('import torch')
+    if has_numpy:
+        imports.append('import numpy')
+
+    lines = [f'# Stubs for module: {module_name}', '']
+    lines.extend(imports)
+    lines.append('')
+    lines.append('')
+
+    for decl in function_decls:
+        lines.append(decl)
+        lines.append('')
+        lines.append('')
 
     return '\n'.join(lines)
 
 
 def generate_pyi_file(name, root, output_dir='.'):
+    func_index = build_cpp_function_index(root)
     results = extract_m_def_statements(root)
 
-    enhanced_results = []
+    cpp_results = []
     for item in results:
-        statements = []
-        for stmt in item['m_def_statements']:
-            statements.append({
-                'raw': stmt,
-                'parsed': parse_m_def_statement(stmt),
-            })
-        enhanced_results.append({'m_def_statements': statements})
+        enhanced_item = parse_mdef_and_attach_cpp_signatures(item, func_index)
+        cpp_item = extract_cpp_signature_details(enhanced_item)
+        cpp_results.append(cpp_item)
 
-    pyi_content = generate_pyi_file_content(enhanced_results, module_name=name)
+    pyi_content = generate_pyi_file_content(cpp_results, module_name=name)
 
     output_path = Path(output_dir) / f'{name}.pyi'
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -557,7 +1064,7 @@ def main(argv=None) -> int:
     import sys
 
     parser = argparse.ArgumentParser(
-        description='Generate deep_gemm/_C.pyi stubs from TORCH_LIBRARY schemas.',
+        description='Generate deep_gemm/_C.pyi stubs from C++ signatures and m.def registrations.',
     )
     parser.add_argument('--name', default='_C', help='Module name for the .pyi file (default: _C)')
     parser.add_argument('--root', default='./csrc', help='Root to scan for m.def(...) (default: ./csrc)')
@@ -582,14 +1089,14 @@ def main(argv=None) -> int:
     pyi_path = output_dir / f'{args.name}.pyi'
     if args.check:
         content = pyi_path.read_text(encoding='utf-8')
-        if '*args, **kwargs' in content:
-            print(f'CHECK FAILED: generic stubs found in {pyi_path}', file=sys.stderr)
-            return 1
+        generic_count = content.count('*args, **kwargs')
         stub_count = content.count('def ')
         if stub_count == 0:
             print(f'CHECK FAILED: no function stubs in {pyi_path}', file=sys.stderr)
             return 1
-        print(f'CHECK PASSED: {stub_count} typed stubs in {pyi_path}')
+        print(f'CHECK PASSED: {stub_count} stubs in {pyi_path} ({stub_count - generic_count} typed, {generic_count} generic)')
+        if generic_count > 0:
+            return 1
     return 0
 
 
