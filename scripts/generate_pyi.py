@@ -1,6 +1,28 @@
 import re
 from pathlib import Path
 
+_TENSOR_PAIR = 'tuple[torch.Tensor, torch.Tensor]'
+_Q_TYPE = f'torch.Tensor | tuple[torch.Tensor, Optional[torch.Tensor]]'
+
+_MERGE_AB_PAIR_OPS = frozenset({
+    'fp8_fp4_gemm_nt', 'fp8_fp4_gemm_nn', 'fp8_fp4_gemm_tn', 'fp8_fp4_gemm_tt',
+    'm_grouped_fp8_fp4_gemm_nt_contiguous', 'm_grouped_fp8_fp4_gemm_nn_contiguous',
+    'm_grouped_fp8_fp4_gemm_nt_masked',
+    'k_grouped_fp8_gemm_tn_contiguous', 'k_grouped_fp8_gemm_nt_contiguous',
+    'fp8_gemm_nt_skip_head_mid',
+})
+_MERGE_EINSUM_AB_OPS = frozenset({'fp8_einsum'})
+_MERGE_MEGA_WEIGHT_OPS = frozenset({'fp8_fp4_mega_moe'})
+_PYI_ALIASES = {
+    'fp8_gemm_nt': 'fp8_fp4_gemm_nt',
+    'fp8_gemm_nn': 'fp8_fp4_gemm_nn',
+    'fp8_gemm_tn': 'fp8_fp4_gemm_tn',
+    'fp8_gemm_tt': 'fp8_fp4_gemm_tt',
+    'm_grouped_fp8_gemm_nt_contiguous': 'm_grouped_fp8_fp4_gemm_nt_contiguous',
+    'm_grouped_fp8_gemm_nn_contiguous': 'm_grouped_fp8_fp4_gemm_nn_contiguous',
+    'm_grouped_fp8_gemm_nt_masked': 'm_grouped_fp8_fp4_gemm_nt_masked',
+}
+
 
 class BracketTracker:
     """
@@ -56,12 +78,267 @@ class BracketTracker:
                 self.angle == 0)
 
 
+def split_top_level_commas(value: str) -> list[str]:
+    """Split a string on top-level commas."""
+    parts = []
+    current = []
+    tracker = BracketTracker()
+    for ch in value:
+        if ch in '()[]{}<>':
+            tracker.update(ch)
+        if ch == ',' and tracker.is_top_level():
+            parts.append(''.join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    if current:
+        parts.append(''.join(current).strip())
+    return parts
+
+
+def find_top_level_equals(value: str) -> int:
+    """Return index of top-level '=' in a schema argument, or -1."""
+    tracker = BracketTracker()
+    for i, ch in enumerate(value):
+        if ch in '()[]{}<>':
+            tracker.update(ch)
+        elif ch == '=' and tracker.is_top_level():
+            return i
+    return -1
+
+
 def extract_torch_op_name(schema: str) -> str:
     """Extract the operator name from a TORCH schema string."""
     paren_pos = schema.find('(')
     if paren_pos == -1:
         return schema.strip()
     return schema[:paren_pos].strip()
+
+
+def schema_type_to_python(type_str: str) -> str:
+    """Map a TORCH_LIBRARY schema type to a Python type annotation string."""
+    type_str = type_str.strip()
+    optional = type_str.endswith('?')
+    if optional:
+        type_str = type_str[:-1].strip()
+
+    if type_str.startswith('Tensor'):
+        py_type = 'torch.Tensor'
+    elif type_str == 'int':
+        py_type = 'int'
+    elif type_str == 'bool':
+        py_type = 'bool'
+    elif type_str == 'float':
+        py_type = 'float'
+    elif type_str == 'str':
+        py_type = 'str'
+    elif type_str == 'int[]':
+        py_type = 'list[int]'
+    else:
+        print(f'Warning: unrecognized schema type {type_str!r}, using Any')
+        py_type = 'Any'
+
+    if optional:
+        return f'Optional[{py_type}]'
+    return py_type
+
+
+def schema_return_to_python(return_str: str) -> str:
+    """Map a TORCH_LIBRARY return type to a Python annotation."""
+    return_str = return_str.strip()
+    if return_str == '()':
+        return 'None'
+    if return_str in {'int', 'bool', 'float', 'str', 'Tensor'}:
+        return {
+            'int': 'int',
+            'bool': 'bool',
+            'float': 'float',
+            'str': 'str',
+            'Tensor': 'torch.Tensor',
+        }[return_str]
+    if return_str.startswith('(') and return_str.endswith(')'):
+        inner = return_str[1:-1].strip()
+        if not inner:
+            return 'tuple[()]'
+        parts = split_top_level_commas(inner)
+        py_parts = [schema_return_to_python(part) for part in parts]
+        return f'tuple[{", ".join(py_parts)}]'
+    print(f'Warning: unrecognized schema return type {return_str!r}, using Any')
+    return 'Any'
+
+
+def schema_default_to_python(default_str: str) -> str:
+    """Convert a TORCH schema default literal to a Python expression string."""
+    default_str = default_str.strip()
+    if default_str in {'None', 'True', 'False'}:
+        return default_str
+    if (default_str.startswith("'") and default_str.endswith("'")) or (
+            default_str.startswith('"') and default_str.endswith('"')):
+        return default_str
+    if re.match(r'^[+-]?\d+$', default_str):
+        return default_str
+    if re.match(r'^[+-]?\d*\.\d+([eE][+-]?\d+)?$', default_str):
+        return default_str
+    print(f'Warning: unrecognized schema default {default_str!r}, using None')
+    return 'None'
+
+
+def parse_schema_arg(arg_str: str) -> dict:
+    """Parse one TORCH schema argument such as 'Tensor? c=None'."""
+    arg_str = arg_str.strip()
+    if not arg_str:
+        raise ValueError('empty schema argument')
+
+    default = None
+    eq_pos = find_top_level_equals(arg_str)
+    if eq_pos != -1:
+        default = schema_default_to_python(arg_str[eq_pos + 1:].strip())
+        arg_str = arg_str[:eq_pos].strip()
+
+    match = re.match(r'^(.+?)\s+([a-zA-Z_][a-zA-Z0-9_]*)$', arg_str)
+    if not match:
+        raise ValueError(f'could not parse schema argument: {arg_str!r}')
+    return {
+        'name': match.group(2),
+        'py_type': schema_type_to_python(match.group(1)),
+        'default': default,
+    }
+
+
+def parse_torch_schema(schema: str) -> dict:
+    """Parse a TORCH_LIBRARY schema into name, parameters, and return type."""
+    arrow = schema.rfind(' -> ')
+    if arrow == -1:
+        raise ValueError(f'schema missing return type: {schema!r}')
+
+    signature = schema[:arrow].strip()
+    return_type = schema_return_to_python(schema[arrow + 4:].strip())
+
+    open_paren = signature.find('(')
+    if open_paren == -1:
+        raise ValueError(f'schema missing argument list: {schema!r}')
+
+    name = signature[:open_paren].strip()
+    paren_depth = 0
+    close_paren = -1
+    for i in range(open_paren, len(signature)):
+        if signature[i] == '(':
+            paren_depth += 1
+        elif signature[i] == ')':
+            paren_depth -= 1
+            if paren_depth == 0:
+                close_paren = i
+                break
+    if close_paren == -1:
+        raise ValueError(f'unclosed argument list in schema: {schema!r}')
+
+    args_blob = signature[open_paren + 1:close_paren].strip()
+    parameters = []
+    if args_blob:
+        for arg in split_top_level_commas(args_blob):
+            parameters.append(parse_schema_arg(arg))
+
+    return {
+        'python_function_name': name,
+        'parameters': parameters,
+        'return_type': return_type,
+        'schema': schema,
+    }
+
+
+def _merge_named_pairs(parameters: list[dict], pairs: tuple[tuple[str, str], ...]) -> list[dict]:
+    """Replace (left, right) arg pairs with a single tuple-typed parameter."""
+    drop = {right for left, right in pairs}
+    merged_left = {left for left, _ in pairs}
+    out = []
+    for param in parameters:
+        if param['name'] in drop:
+            continue
+        if param['name'] in merged_left:
+            out.append({
+                'name': param['name'],
+                'py_type': _TENSOR_PAIR,
+                'default': None,
+            })
+            continue
+        out.append(dict(param))
+    return out
+
+
+def adjust_for_c_py_wrapper(name: str, parameters: list[dict]) -> list[dict]:
+    """
+    Adjust parsed schema parameters to match deep_gemm._C Python wrappers.
+
+    TORCH_LIBRARY registers flat tensor/scales args; _C.py preserves the legacy
+    pybind API by accepting (tensor, scale_factor) tuples for many kernels.
+    """
+    if name in _MERGE_AB_PAIR_OPS:
+        parameters = _merge_named_pairs(parameters, (('a', 'sfa'), ('b', 'sfb')))
+
+    elif name in _MERGE_EINSUM_AB_OPS:
+        parameters = _merge_named_pairs(parameters, (('a', 'sfa'), ('b', 'sfb')))
+        for param in parameters:
+            if param['name'] == 'recipe':
+                param['py_type'] = 'tuple[int, int, int]'
+                param['default'] = '(1, 128, 128)'
+
+    elif name in _MERGE_MEGA_WEIGHT_OPS:
+        parameters = _merge_named_pairs(
+            parameters,
+            (('l1_weights', 'l1_weights_sf'), ('l2_weights', 'l2_weights_sf')),
+        )
+        for param in parameters:
+            if param['name'] == 'recipe':
+                param['py_type'] = 'tuple[int, int, int]'
+
+    elif name == 'fp8_fp4_mqa_logits':
+        parameters = _merge_named_pairs(parameters, (('kv', 'kv_sf'),))
+        out = []
+        for param in parameters:
+            if param['name'] == 'q_sf':
+                continue
+            if param['name'] == 'q':
+                param['py_type'] = _Q_TYPE
+            if param['name'] == 'logits_dtype':
+                param['py_type'] = 'torch.dtype'
+                param['default'] = 'torch.float32'
+            out.append(param)
+        return out
+
+    elif name == 'fp8_fp4_paged_mqa_logits':
+        out = []
+        for param in parameters:
+            if param['name'] == 'q_sf':
+                continue
+            if param['name'] == 'q':
+                param['py_type'] = _Q_TYPE
+            if param['name'] == 'logits_dtype':
+                param['py_type'] = 'torch.dtype'
+                param['default'] = 'torch.float32'
+            out.append(param)
+        return out
+
+    elif name == 'fp8_mqa_logits':
+        parameters = _merge_named_pairs(parameters, (('kv', 'kv_sf'),))
+
+    elif name == 'set_block_size_multiple_of':
+        for param in parameters:
+            if param['name'] == 'value':
+                param['py_type'] = 'int | list[int]'
+
+    if name in {'k_grouped_fp8_gemm_tn_contiguous', 'k_grouped_fp8_gemm_nt_contiguous'}:
+        for param in parameters:
+            if param['name'] == 'recipe':
+                param['py_type'] = 'tuple[int, int, int]'
+                param['default'] = '(1, 1, 128)'
+
+    return parameters
+
+
+def sanitize_param_name(name: str) -> str:
+    if name in {'def', 'class', 'from', 'import', 'None', 'True', 'False'}:
+        return f'{name}_'
+    return name
 
 
 def extract_m_def_statements(root_path):
@@ -164,75 +441,89 @@ def parse_m_def_statement(m_def_str):
     args_content = m_def_str[content_start:content_end]
 
     # Split arguments using BracketTracker
-    args_list = []
-    current = []
-    tracker = BracketTracker()
-
-    for ch in args_content:
-        if ch in '()[]{}<>':
-            tracker.update(ch)
-        if ch == ',' and tracker.is_top_level():
-            args_list.append(''.join(current).strip())
-            current = []
-        else:
-            current.append(ch)
-
-    if current:
-        args_list.append(''.join(current).strip())
+    args_list = split_top_level_commas(args_content)
 
     if not args_list:
         raise ValueError(f'[{m_def_str}] m.def has no arguments')
 
-    # Extract operator name from the TORCH schema string
+    # Extract operator schema from the first string literal
     first = args_list[0].strip()
     str_match = re.match(r'^"([^"\\]*(?:\\.[^"\\]*)*)"', first)
     if not str_match:
         raise ValueError(f'[{m_def_str}] m.def first argument should be a string literal')
 
-    schema = str_match.group(1)
-    return {
-        'python_function_name': extract_torch_op_name(schema),
-        'schema': schema,
-    }
+    return parse_torch_schema(str_match.group(1))
 
 
 def generate_pyi_function(item_entry):
-    """
-    Generate a .pyi stub for one registered op.
+    """Generate a typed .pyi stub for one registered op."""
+    parsed = item_entry['parsed']
+    py_name = parsed['python_function_name']
+    parameters = adjust_for_c_py_wrapper(py_name, parsed['parameters'])
+    return_type = parsed['return_type']
 
-    Typed stubs require parsing the TORCH schema in item_entry['parsed']['schema'].
-    Until then, emit a generic signature that matches deep_gemm._C wrappers.
-    """
-    py_name = item_entry['parsed']['python_function_name']
-    return f'def {py_name}(*args, **kwargs) -> Any: ...'
+    param_lines = []
+    for param in parameters:
+        name = sanitize_param_name(param['name'])
+        if param['default'] is not None:
+            param_lines.append(f'    {name}: {param["py_type"]} = {param["default"]}')
+        else:
+            param_lines.append(f'    {name}: {param["py_type"]}')
+
+    if param_lines:
+        params_block = ',\n'.join(param_lines)
+        return f'def {py_name}(\n{params_block}\n) -> {return_type}: ...'
+    return f'def {py_name}() -> {return_type}: ...'
+
+
+def _alias_pyi_decl(decl: str, alias_name: str, source_name: str) -> str:
+    return decl.replace(f'def {source_name}(', f'def {alias_name}(', 1)
 
 
 def generate_pyi_file_content(enhanced_results, module_name: str = 'my_module'):
-    function_decls = []
-    has_torch = False
-
+    by_name = {}
     for item in enhanced_results:
         for stmt in item['m_def_statements']:
-            try:
-                decl = generate_pyi_function(stmt)
-                function_decls.append(decl)
-                if 'torch.Tensor' in decl:
-                    has_torch = True
-            except Exception as e:
-                func_name = stmt['parsed'].get('python_function_name', 'unknown')
-                function_decls.append(f'# ERROR: failed to generate stub for {func_name}: {e}')
+            name = stmt['parsed']['python_function_name']
+            by_name[name] = stmt
+
+    decl_by_name = {}
+    has_optional = False
+    has_torch = False
+
+    for name in sorted(by_name):
+        stmt = by_name[name]
+        try:
+            decl = generate_pyi_function(stmt)
+            decl_by_name[name] = decl
+            if 'Optional[' in decl:
+                has_optional = True
+            if 'torch.' in decl:
+                has_torch = True
+        except Exception as e:
+            decl_by_name[name] = f'# ERROR: failed to generate stub for {name}: {e}'
+
+    for alias_name, source_name in _PYI_ALIASES.items():
+        if source_name in decl_by_name and alias_name not in decl_by_name:
+            decl_by_name[alias_name] = _alias_pyi_decl(decl_by_name[source_name], alias_name, source_name)
+            if 'Optional[' in decl_by_name[alias_name]:
+                has_optional = True
+            if 'torch.' in decl_by_name[alias_name]:
+                has_torch = True
 
     lines = [
         f'# Stubs for module: {module_name}',
         '',
         'from typing import Any',
     ]
+    if has_optional:
+        lines[2] += ', Optional'
     if has_torch:
         lines.append('import torch')
     lines.extend(['', ''])
 
-    for decl in function_decls:
-        lines.extend([decl, '', ''])
+    for name in sorted(decl_by_name):
+        lines.extend([decl_by_name[name], '', ''])
 
     return '\n'.join(lines)
 
@@ -259,3 +550,49 @@ def generate_pyi_file(name, root, output_dir='.'):
         f.write(pyi_content)
 
     print(f'.pyi file generated: {output_path}')
+
+
+def main(argv=None) -> int:
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(
+        description='Generate deep_gemm/_C.pyi stubs from TORCH_LIBRARY schemas.',
+    )
+    parser.add_argument('--name', default='_C', help='Module name for the .pyi file (default: _C)')
+    parser.add_argument('--root', default='./csrc', help='Root to scan for m.def(...) (default: ./csrc)')
+    parser.add_argument('--output-dir', default='./stubs', help='Output directory (default: ./stubs)')
+    parser.add_argument(
+        '--check',
+        action='store_true',
+        help='Verify the output has typed stubs (no generic *args, **kwargs)',
+    )
+    args = parser.parse_args(argv)
+
+    repo_root = Path(__file__).resolve().parent.parent
+    root = Path(args.root)
+    output_dir = Path(args.output_dir)
+    if not root.is_absolute():
+        root = repo_root / root
+    if not output_dir.is_absolute():
+        output_dir = repo_root / output_dir
+
+    generate_pyi_file(name=args.name, root=str(root), output_dir=str(output_dir))
+
+    pyi_path = output_dir / f'{args.name}.pyi'
+    if args.check:
+        content = pyi_path.read_text(encoding='utf-8')
+        if '*args, **kwargs' in content:
+            print(f'CHECK FAILED: generic stubs found in {pyi_path}', file=sys.stderr)
+            return 1
+        stub_count = content.count('def ')
+        if stub_count == 0:
+            print(f'CHECK FAILED: no function stubs in {pyi_path}', file=sys.stderr)
+            return 1
+        print(f'CHECK PASSED: {stub_count} typed stubs in {pyi_path}')
+    return 0
+
+
+if __name__ == '__main__':
+    import sys
+    raise SystemExit(main())
