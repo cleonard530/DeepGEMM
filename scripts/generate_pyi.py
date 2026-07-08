@@ -1,3 +1,4 @@
+import ast
 import re
 from pathlib import Path
 
@@ -940,7 +941,82 @@ def cpp_default_to_python_default(cpp_default: str):
     return 'None'
 
 
-def generate_pyi_function(item_entry):
+def format_ast_default(node: ast.AST) -> str:
+    """Convert an AST default value node to a Python expression string for stubs."""
+    if isinstance(node, ast.Constant):
+        if node.value is None:
+            return 'None'
+        if isinstance(node.value, bool):
+            return 'True' if node.value else 'False'
+        if isinstance(node.value, str):
+            return f'"{node.value}"'
+        if isinstance(node.value, (int, float)):
+            return repr(node.value)
+    if isinstance(node, ast.Tuple):
+        elts = ', '.join(format_ast_default(element) for element in node.elts)
+        return f'({elts})'
+    if isinstance(node, ast.List):
+        elts = ', '.join(format_ast_default(element) for element in node.elts)
+        return f'[{elts}]'
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return ast.unparse(node)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return f'-{format_ast_default(node.operand)}'
+    return ast.unparse(node)
+
+
+def extract_function_defaults(func_def: ast.FunctionDef) -> dict[str, str]:
+    """Extract {param_name: default_expr} from a Python function definition."""
+    defaults: dict[str, str] = {}
+    args = func_def.args
+    pos_args = args.args
+    if args.defaults:
+        first_default_idx = len(pos_args) - len(args.defaults)
+        for idx, default_node in enumerate(args.defaults):
+            defaults[pos_args[first_default_idx + idx].arg] = format_ast_default(default_node)
+    for arg, default_node in zip(args.kwonlyargs, args.kw_defaults):
+        if default_node is not None:
+            defaults[arg.arg] = format_ast_default(default_node)
+    return defaults
+
+
+def parse_wrapper_defaults(c_py_path: Path) -> dict[str, dict[str, str]]:
+    """Parse deep_gemm/_C.py wrapper function defaults keyed by exported name."""
+    source = c_py_path.read_text(encoding='utf-8')
+    module = ast.parse(source, filename=str(c_py_path))
+
+    func_defaults: dict[str, dict[str, str]] = {}
+
+    for node in ast.walk(module):
+        if isinstance(node, ast.FunctionDef):
+            func_defaults[node.name] = extract_function_defaults(node)
+
+    for node in ast.walk(module):
+        if not isinstance(node, ast.Call):
+            continue
+        if not (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == 'update'
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == 'globals'
+        ):
+            continue
+        if not node.args or not isinstance(node.args[0], ast.Dict):
+            continue
+        alias_dict = node.args[0]
+        for key_node, value_node in zip(alias_dict.keys, alias_dict.values):
+            if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
+                continue
+            alias_name = key_node.value
+            if isinstance(value_node, ast.Name) and value_node.id in func_defaults:
+                func_defaults[alias_name] = func_defaults[value_node.id]
+
+    return func_defaults
+
+
+def generate_pyi_function(item_entry, wrapper_defaults=None):
     parsed = item_entry['parsed']
     py_name = parsed['python_function_name']
 
@@ -950,6 +1026,7 @@ def generate_pyi_function(item_entry):
     sig_info = parsed.get('cpp_parsed_signature')
     default_args = dict(parsed.get('default_args', {}))
     schema_default_by_name = parsed.get('schema_default_args', {})
+    wrapper_default_by_name = (wrapper_defaults or {}).get(py_name, {})
 
     if not sig_info:
         return f'def {py_name}(*args, **kwargs) -> Any: ...'
@@ -969,10 +1046,12 @@ def generate_pyi_function(item_entry):
         if param_name in {'def', 'class', 'from', 'import', 'None', 'True', 'False'}:
             param_name = f'{param_name}_'
 
-        # Check for default value (py::arg defaults take precedence over schema defaults).
+        # Defaults: py::arg > _C.py wrapper > TORCH schema.
         py_default = None
         if i in default_args:
             py_default = cpp_default_to_python_default(default_args[i])
+        elif param_name in wrapper_default_by_name:
+            py_default = wrapper_default_by_name[param_name]
         elif param_name in schema_default_by_name:
             py_default = schema_default_by_name[param_name]
             if param_type == 'torch.dtype' and py_default == '6':
@@ -994,7 +1073,7 @@ def generate_pyi_function(item_entry):
     return func_def
 
 
-def generate_pyi_file_content(enhanced_results, module_name: str = 'my_module'):
+def generate_pyi_file_content(enhanced_results, module_name: str = 'my_module', wrapper_defaults=None):
     function_decls = []
     has_optional = False
     has_torch = False
@@ -1003,7 +1082,7 @@ def generate_pyi_file_content(enhanced_results, module_name: str = 'my_module'):
     for item in enhanced_results:
         for stmt in item['m_def_statements']:
             try:
-                decl = generate_pyi_function(stmt)
+                decl = generate_pyi_function(stmt, wrapper_defaults=wrapper_defaults)
                 function_decls.append(decl)
 
                 if 'Optional[' in decl:
@@ -1038,7 +1117,7 @@ def generate_pyi_file_content(enhanced_results, module_name: str = 'my_module'):
     return '\n'.join(lines)
 
 
-def generate_pyi_file(name, root, output_dir='.'):
+def generate_pyi_file(name, root, output_dir='.', c_py_path=None):
     func_index = build_cpp_function_index(root)
     results = extract_m_def_statements(root)
 
@@ -1048,7 +1127,19 @@ def generate_pyi_file(name, root, output_dir='.'):
         cpp_item = extract_cpp_signature_details(enhanced_item)
         cpp_results.append(cpp_item)
 
-    pyi_content = generate_pyi_file_content(cpp_results, module_name=name)
+    wrapper_defaults = {}
+    if c_py_path is not None:
+        c_py_path = Path(c_py_path)
+        if c_py_path.is_file():
+            wrapper_defaults = parse_wrapper_defaults(c_py_path)
+        else:
+            print(f'Warning: wrapper file not found: {c_py_path}')
+
+    pyi_content = generate_pyi_file_content(
+        cpp_results,
+        module_name=name,
+        wrapper_defaults=wrapper_defaults,
+    )
 
     output_path = Path(output_dir) / f'{name}.pyi'
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1070,6 +1161,11 @@ def main(argv=None) -> int:
     parser.add_argument('--root', default='./csrc', help='Root to scan for m.def(...) (default: ./csrc)')
     parser.add_argument('--output-dir', default='./stubs', help='Output directory (default: ./stubs)')
     parser.add_argument(
+        '--c-py',
+        default='./deep_gemm/_C.py',
+        help='Python wrapper module to read public API defaults from (default: ./deep_gemm/_C.py)',
+    )
+    parser.add_argument(
         '--check',
         action='store_true',
         help='Verify the output has typed stubs (no generic *args, **kwargs)',
@@ -1084,7 +1180,16 @@ def main(argv=None) -> int:
     if not output_dir.is_absolute():
         output_dir = repo_root / output_dir
 
-    generate_pyi_file(name=args.name, root=str(root), output_dir=str(output_dir))
+    c_py_path = Path(args.c_py)
+    if not c_py_path.is_absolute():
+        c_py_path = repo_root / c_py_path
+
+    generate_pyi_file(
+        name=args.name,
+        root=str(root),
+        output_dir=str(output_dir),
+        c_py_path=str(c_py_path),
+    )
 
     pyi_path = output_dir / f'{args.name}.pyi'
     if args.check:
