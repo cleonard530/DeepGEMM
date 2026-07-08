@@ -79,152 +79,174 @@ def _unpack_kv(kv):
     return kv[0], kv[1]
 
 
-def _fp8_fp4_gemm(name, a, b, d, c=None, recipe=None, recipe_a=None, recipe_b=None,
-                  compiled_dims='nk', disable_ue8m0_cast=False):
-    a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
-    return getattr(_torch_ops, name)(
-        a_tensor, sfa, b_tensor, sfb, d, c, recipe, recipe_a, recipe_b,
-        compiled_dims, disable_ue8m0_cast,
+def _register_deep_gemm_kernels():
+    """Export DeepGEMM kernels only when C++ ops are registered."""
+    def fp8_fp4_gemm_nt(a, b, d, c=None, recipe=None, recipe_a=None, recipe_b=None,
+                        compiled_dims='nk', disable_ue8m0_cast=False):
+        a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
+        return _torch_ops.fp8_fp4_gemm_nt(
+            a_tensor, sfa, b_tensor, sfb, d, c, recipe, recipe_a, recipe_b,
+            compiled_dims, disable_ue8m0_cast,
+        )
+
+    def fp8_fp4_gemm_nn(a, b, d, c=None, recipe=None, recipe_a=None, recipe_b=None,
+                        compiled_dims='nk', disable_ue8m0_cast=False):
+        a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
+        return _torch_ops.fp8_fp4_gemm_nn(
+            a_tensor, sfa, b_tensor, sfb, d, c, recipe, recipe_a, recipe_b,
+            compiled_dims, disable_ue8m0_cast,
+        )
+
+    def fp8_fp4_gemm_tn(a, b, d, c=None, recipe=None, recipe_a=None, recipe_b=None,
+                        compiled_dims='mn', disable_ue8m0_cast=False):
+        a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
+        return _torch_ops.fp8_fp4_gemm_tn(
+            a_tensor, sfa, b_tensor, sfb, d, c, recipe, recipe_a, recipe_b,
+            compiled_dims, disable_ue8m0_cast,
+        )
+
+    def fp8_fp4_gemm_tt(a, b, d, c=None, recipe=None, recipe_a=None, recipe_b=None,
+                        compiled_dims='mn', disable_ue8m0_cast=False):
+        a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
+        return _torch_ops.fp8_fp4_gemm_tt(
+            a_tensor, sfa, b_tensor, sfb, d, c, recipe, recipe_a, recipe_b,
+            compiled_dims, disable_ue8m0_cast,
+        )
+
+    def m_grouped_fp8_fp4_gemm_nt_contiguous(a, b, d, grouped_layout, recipe=None, recipe_a=None, recipe_b=None,
+                                             compiled_dims='nk', disable_ue8m0_cast=False, use_psum_layout=False,
+                                             ensure_zero_padding=True, expected_m_for_psum_layout=None):
+        a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
+        return _torch_ops.m_grouped_fp8_fp4_gemm_nt_contiguous(
+            a_tensor, sfa, b_tensor, sfb, d, grouped_layout, recipe, recipe_a, recipe_b,
+            compiled_dims, disable_ue8m0_cast, use_psum_layout, ensure_zero_padding,
+            expected_m_for_psum_layout,
+        )
+
+    def m_grouped_fp8_fp4_gemm_nn_contiguous(a, b, d, grouped_layout, recipe=None, recipe_a=None, recipe_b=None,
+                                             compiled_dims='nk', disable_ue8m0_cast=False, use_psum_layout=False,
+                                             ensure_zero_padding=True):
+        a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
+        return _torch_ops.m_grouped_fp8_fp4_gemm_nn_contiguous(
+            a_tensor, sfa, b_tensor, sfb, d, grouped_layout, recipe, recipe_a, recipe_b,
+            compiled_dims, disable_ue8m0_cast, use_psum_layout, ensure_zero_padding,
+        )
+
+    def m_grouped_fp8_fp4_gemm_nt_masked(a, b, d, masked_m, expected_m, recipe=None, recipe_a=None, recipe_b=None,
+                                         compiled_dims='nk', disable_ue8m0_cast=False):
+        a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
+        return _torch_ops.m_grouped_fp8_fp4_gemm_nt_masked(
+            a_tensor, sfa, b_tensor, sfb, d, masked_m, expected_m, recipe, recipe_a, recipe_b,
+            compiled_dims, disable_ue8m0_cast,
+        )
+
+    def k_grouped_fp8_gemm_tn_contiguous(a, b, d, ks_cpu, grouped_layout, c=None, recipe=(1, 1, 128),
+                                         compiled_dims='mn', use_psum_layout=False):
+        a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
+        return _torch_ops.k_grouped_fp8_gemm_tn_contiguous(
+            a_tensor, sfa, b_tensor, sfb, d, ks_cpu, grouped_layout, c, list(recipe),
+            compiled_dims, use_psum_layout,
+        )
+
+    def k_grouped_fp8_gemm_nt_contiguous(a, b, d, ks_cpu, grouped_layout, c=None, recipe=(1, 1, 128),
+                                         compiled_dims='mn', use_psum_layout=False):
+        a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
+        return _torch_ops.k_grouped_fp8_gemm_nt_contiguous(
+            a_tensor, sfa, b_tensor, sfb, d, ks_cpu, grouped_layout, c, list(recipe),
+            compiled_dims, use_psum_layout,
+        )
+
+    def fp8_gemm_nt_skip_head_mid(a, b, d, head_splits, recipe=None, compiled_dims='nk', disable_ue8m0_cast=False):
+        a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
+        return _torch_ops.fp8_gemm_nt_skip_head_mid(
+            a_tensor, sfa, b_tensor, sfb, d, list(head_splits), recipe, compiled_dims, disable_ue8m0_cast,
+        )
+
+    def fp8_einsum(expr, a, b, d, c=None, recipe=(1, 128, 128)):
+        return _torch_ops.fp8_einsum(expr, a[0], a[1], b[0], b[1], d, c, list(recipe) if recipe is not None else None)
+
+    def fp8_fp4_mqa_logits(q, kv, weights, cu_seq_len_k_start, cu_seq_len_k_end, clean_logits=True,
+                           max_seqlen_k=0, logits_dtype=torch.float32):
+        q_fp, q_sf = _unpack_q(q)
+        kv_fp, kv_sf = _unpack_kv(kv)
+        return _torch_ops.fp8_fp4_mqa_logits(
+            q_fp, q_sf, kv_fp, kv_sf, weights, cu_seq_len_k_start, cu_seq_len_k_end,
+            clean_logits, max_seqlen_k, _as_scalar_type(logits_dtype),
+        )
+
+    def fp8_fp4_paged_mqa_logits(q, kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len,
+                                 clean_logits=False, logits_dtype=torch.float32, indices=None):
+        q_fp, q_sf = _unpack_q(q)
+        return _torch_ops.fp8_fp4_paged_mqa_logits(
+            q_fp, q_sf, kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len,
+            clean_logits, _as_scalar_type(logits_dtype), indices,
+        )
+
+    def fp8_mqa_logits(q, kv, weights, cu_seq_len_k_start, cu_seq_len_k_end, clean_logits=True, max_seqlen_k=0):
+        kv_fp, kv_sf = _unpack_kv(kv)
+        return _torch_ops.fp8_mqa_logits(q, kv_fp, kv_sf, weights, cu_seq_len_k_start, cu_seq_len_k_end, clean_logits, max_seqlen_k)
+
+    def fp8_paged_mqa_logits(q, kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len,
+                             clean_logits=False, indices=None):
+        return _torch_ops.fp8_paged_mqa_logits(
+            q, kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len, clean_logits, indices,
+        )
+
+    globals().update({
+        'fp8_fp4_gemm_nt': fp8_fp4_gemm_nt,
+        'fp8_fp4_gemm_nn': fp8_fp4_gemm_nn,
+        'fp8_fp4_gemm_tn': fp8_fp4_gemm_tn,
+        'fp8_fp4_gemm_tt': fp8_fp4_gemm_tt,
+        'fp8_gemm_nt': fp8_fp4_gemm_nt,
+        'fp8_gemm_nn': fp8_fp4_gemm_nn,
+        'fp8_gemm_tn': fp8_fp4_gemm_tn,
+        'fp8_gemm_tt': fp8_fp4_gemm_tt,
+        'm_grouped_fp8_fp4_gemm_nt_contiguous': m_grouped_fp8_fp4_gemm_nt_contiguous,
+        'm_grouped_fp8_fp4_gemm_nn_contiguous': m_grouped_fp8_fp4_gemm_nn_contiguous,
+        'm_grouped_fp8_fp4_gemm_nt_masked': m_grouped_fp8_fp4_gemm_nt_masked,
+        'm_grouped_fp8_gemm_nt_contiguous': m_grouped_fp8_fp4_gemm_nt_contiguous,
+        'm_grouped_fp8_gemm_nn_contiguous': m_grouped_fp8_fp4_gemm_nn_contiguous,
+        'm_grouped_fp8_gemm_nt_masked': m_grouped_fp8_fp4_gemm_nt_masked,
+        'k_grouped_fp8_gemm_tn_contiguous': k_grouped_fp8_gemm_tn_contiguous,
+        'k_grouped_fp8_gemm_nt_contiguous': k_grouped_fp8_gemm_nt_contiguous,
+        'fp8_gemm_nt_skip_head_mid': fp8_gemm_nt_skip_head_mid,
+        'fp8_einsum': fp8_einsum,
+        'fp8_fp4_mqa_logits': fp8_fp4_mqa_logits,
+        'fp8_fp4_paged_mqa_logits': fp8_fp4_paged_mqa_logits,
+        'fp8_mqa_logits': fp8_mqa_logits,
+        'fp8_paged_mqa_logits': fp8_paged_mqa_logits,
+    })
+
+    # DG_TENSORMAP_COMPATIBLE — gemm.hpp (BF16 impl conditional)
+    _bind_guarded_ops(
+        'bf16_gemm_nt',
+        'bf16_gemm_nn',
+        'bf16_gemm_tn',
+        'bf16_gemm_tt',
+        'm_grouped_bf16_gemm_nt_contiguous',
+        'm_grouped_bf16_gemm_nn_contiguous',
+        'm_grouped_bf16_gemm_nt_masked',
+        'k_grouped_bf16_gemm_tn_contiguous',
+    )
+
+    # DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE — einsum.hpp, attention.hpp, hyperconnection.hpp
+    _bind_guarded_ops(
+        'einsum',
+        'tf32_hc_prenorm_gemm',
+        'get_paged_mqa_logits_metadata',
+    )
+
+    # DG_TENSORMAP_COMPATIBLE — layout.hpp (schema and impl conditional)
+    _bind_guarded_ops(
+        'transform_sf_into_required_layout',
+        'get_tma_aligned_size',
+        'get_mn_major_tma_aligned_tensor',
+        'get_mn_major_tma_aligned_packed_ue8m0_tensor',
+        'get_k_grouped_mn_major_tma_aligned_packed_ue8m0_tensor',
     )
 
 
-def fp8_fp4_gemm_nt(a, b, d, c=None, recipe=None, recipe_a=None, recipe_b=None,
-                    compiled_dims='nk', disable_ue8m0_cast=False):
-    return _fp8_fp4_gemm('fp8_fp4_gemm_nt', a, b, d, c, recipe, recipe_a, recipe_b,
-                         compiled_dims, disable_ue8m0_cast)
-
-
-def fp8_fp4_gemm_nn(a, b, d, c=None, recipe=None, recipe_a=None, recipe_b=None,
-                    compiled_dims='nk', disable_ue8m0_cast=False):
-    return _fp8_fp4_gemm('fp8_fp4_gemm_nn', a, b, d, c, recipe, recipe_a, recipe_b,
-                         compiled_dims, disable_ue8m0_cast)
-
-
-def fp8_fp4_gemm_tn(a, b, d, c=None, recipe=None, recipe_a=None, recipe_b=None,
-                    compiled_dims='mn', disable_ue8m0_cast=False):
-    return _fp8_fp4_gemm('fp8_fp4_gemm_tn', a, b, d, c, recipe, recipe_a, recipe_b,
-                         compiled_dims, disable_ue8m0_cast)
-
-
-def fp8_fp4_gemm_tt(a, b, d, c=None, recipe=None, recipe_a=None, recipe_b=None,
-                    compiled_dims='mn', disable_ue8m0_cast=False):
-    return _fp8_fp4_gemm('fp8_fp4_gemm_tt', a, b, d, c, recipe, recipe_a, recipe_b,
-                         compiled_dims, disable_ue8m0_cast)
-
-
-fp8_gemm_nt = fp8_fp4_gemm_nt
-fp8_gemm_nn = fp8_fp4_gemm_nn
-fp8_gemm_tn = fp8_fp4_gemm_tn
-fp8_gemm_tt = fp8_fp4_gemm_tt
-
-
-def _m_grouped_fp8_fp4_gemm(name, a, b, d, grouped_layout, recipe=None, recipe_a=None, recipe_b=None,
-                            compiled_dims='nk', disable_ue8m0_cast=False, use_psum_layout=False,
-                            ensure_zero_padding=True, expected_m_for_psum_layout=None):
-    a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
-    return getattr(_torch_ops, name)(
-        a_tensor, sfa, b_tensor, sfb, d, grouped_layout, recipe, recipe_a, recipe_b,
-        compiled_dims, disable_ue8m0_cast, use_psum_layout, ensure_zero_padding,
-        expected_m_for_psum_layout,
-    )
-
-
-def m_grouped_fp8_fp4_gemm_nt_contiguous(a, b, d, grouped_layout, recipe=None, recipe_a=None, recipe_b=None,
-                                       compiled_dims='nk', disable_ue8m0_cast=False, use_psum_layout=False,
-                                       ensure_zero_padding=True, expected_m_for_psum_layout=None):
-    return _m_grouped_fp8_fp4_gemm(
-        'm_grouped_fp8_fp4_gemm_nt_contiguous', a, b, d, grouped_layout, recipe, recipe_a, recipe_b,
-        compiled_dims, disable_ue8m0_cast, use_psum_layout, ensure_zero_padding, expected_m_for_psum_layout,
-    )
-
-
-def m_grouped_fp8_fp4_gemm_nn_contiguous(a, b, d, grouped_layout, recipe=None, recipe_a=None, recipe_b=None,
-                                       compiled_dims='nk', disable_ue8m0_cast=False, use_psum_layout=False,
-                                       ensure_zero_padding=True):
-    return _m_grouped_fp8_fp4_gemm(
-        'm_grouped_fp8_fp4_gemm_nn_contiguous', a, b, d, grouped_layout, recipe, recipe_a, recipe_b,
-        compiled_dims, disable_ue8m0_cast, use_psum_layout, ensure_zero_padding, None,
-    )
-
-
-def m_grouped_fp8_fp4_gemm_nt_masked(a, b, d, masked_m, expected_m, recipe=None, recipe_a=None, recipe_b=None,
-                                     compiled_dims='nk', disable_ue8m0_cast=False):
-    a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
-    return _torch_ops.m_grouped_fp8_fp4_gemm_nt_masked(
-        a_tensor, sfa, b_tensor, sfb, d, masked_m, expected_m, recipe, recipe_a, recipe_b,
-        compiled_dims, disable_ue8m0_cast,
-    )
-
-
-m_grouped_fp8_gemm_nt_contiguous = m_grouped_fp8_fp4_gemm_nt_contiguous
-m_grouped_fp8_gemm_nn_contiguous = m_grouped_fp8_fp4_gemm_nn_contiguous
-m_grouped_fp8_gemm_nt_masked = m_grouped_fp8_fp4_gemm_nt_masked
-
-
-def _k_grouped_fp8_gemm(name, a, b, d, ks_cpu, grouped_layout, c=None, recipe=None,
-                        compiled_dims='mn', use_psum_layout=False):
-    a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
-    return getattr(_torch_ops, name)(
-        a_tensor, sfa, b_tensor, sfb, d, ks_cpu, grouped_layout, c, recipe, compiled_dims, use_psum_layout,
-    )
-
-
-def k_grouped_fp8_gemm_tn_contiguous(a, b, d, ks_cpu, grouped_layout, c=None, recipe=(1, 1, 128),
-                                   compiled_dims='mn', use_psum_layout=False):
-    return _k_grouped_fp8_gemm(
-        'k_grouped_fp8_gemm_tn_contiguous', a, b, d, ks_cpu, grouped_layout, c, list(recipe),
-        compiled_dims, use_psum_layout,
-    )
-
-
-def k_grouped_fp8_gemm_nt_contiguous(a, b, d, ks_cpu, grouped_layout, c=None, recipe=(1, 1, 128),
-                                     compiled_dims='mn', use_psum_layout=False):
-    return _k_grouped_fp8_gemm(
-        'k_grouped_fp8_gemm_nt_contiguous', a, b, d, ks_cpu, grouped_layout, c, list(recipe),
-        compiled_dims, use_psum_layout,
-    )
-
-
-def fp8_gemm_nt_skip_head_mid(a, b, d, head_splits, recipe=None, compiled_dims='nk', disable_ue8m0_cast=False):
-    a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
-    return _torch_ops.fp8_gemm_nt_skip_head_mid(
-        a_tensor, sfa, b_tensor, sfb, d, list(head_splits), recipe, compiled_dims, disable_ue8m0_cast,
-    )
-
-
-def fp8_einsum(expr, a, b, d, c=None, recipe=(1, 128, 128)):
-    return _torch_ops.fp8_einsum(expr, a[0], a[1], b[0], b[1], d, c, list(recipe) if recipe is not None else None)
-
-
-def fp8_fp4_mqa_logits(q, kv, weights, cu_seq_len_k_start, cu_seq_len_k_end, clean_logits=True,
-                       max_seqlen_k=0, logits_dtype=torch.float32):
-    q_fp, q_sf = _unpack_q(q)
-    kv_fp, kv_sf = _unpack_kv(kv)
-    return _torch_ops.fp8_fp4_mqa_logits(
-        q_fp, q_sf, kv_fp, kv_sf, weights, cu_seq_len_k_start, cu_seq_len_k_end,
-        clean_logits, max_seqlen_k, _as_scalar_type(logits_dtype),
-    )
-
-
-def fp8_fp4_paged_mqa_logits(q, kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len,
-                             clean_logits=False, logits_dtype=torch.float32, indices=None):
-    q_fp, q_sf = _unpack_q(q)
-    return _torch_ops.fp8_fp4_paged_mqa_logits(
-        q_fp, q_sf, kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len,
-        clean_logits, _as_scalar_type(logits_dtype), indices,
-    )
-
-
-def fp8_mqa_logits(q, kv, weights, cu_seq_len_k_start, cu_seq_len_k_end, clean_logits=True, max_seqlen_k=0):
-    kv_fp, kv_sf = _unpack_kv(kv)
-    return _torch_ops.fp8_mqa_logits(q, kv_fp, kv_sf, weights, cu_seq_len_k_start, cu_seq_len_k_end, clean_logits, max_seqlen_k)
-
-
-def fp8_paged_mqa_logits(q, kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len,
-                         clean_logits=False, indices=None):
-    return _torch_ops.fp8_paged_mqa_logits(
-        q, kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len, clean_logits, indices,
-    )
+_register_deep_gemm_kernels()
 
 
 def get_symm_buffer_size_for_mega_moe(*args, **kwargs):
@@ -234,34 +256,6 @@ def get_symm_buffer_size_for_mega_moe(*args, **kwargs):
 def slice_symm_buffer_for_mega_moe(buffer, *args, **kwargs):
     return _torch_ops.slice_symm_buffer_for_mega_moe(buffer, *args, **kwargs)
 
-
-# DG_TENSORMAP_COMPATIBLE — layout.hpp (schema and impl conditional)
-_bind_guarded_ops(
-    'transform_sf_into_required_layout',
-    'get_tma_aligned_size',
-    'get_mn_major_tma_aligned_tensor',
-    'get_mn_major_tma_aligned_packed_ue8m0_tensor',
-    'get_k_grouped_mn_major_tma_aligned_packed_ue8m0_tensor',
-)
-
-# DG_TENSORMAP_COMPATIBLE — gemm.hpp (BF16 impl conditional)
-_bind_guarded_ops(
-    'bf16_gemm_nt',
-    'bf16_gemm_nn',
-    'bf16_gemm_tn',
-    'bf16_gemm_tt',
-    'm_grouped_bf16_gemm_nt_contiguous',
-    'm_grouped_bf16_gemm_nn_contiguous',
-    'm_grouped_bf16_gemm_nt_masked',
-    'k_grouped_bf16_gemm_tn_contiguous',
-)
-
-# DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE — hyperconnection.hpp, einsum.hpp, attention.hpp
-_bind_guarded_ops(
-    'tf32_hc_prenorm_gemm',
-    'einsum',
-    'get_paged_mqa_logits_metadata',
-)
 
 # DG_TENSORMAP_COMPATIBLE — mega.hpp (C++ impl conditional; matches legacy pybind export guard)
 _bind_guarded_ops(
@@ -299,7 +293,7 @@ def bf16_mega_moe(y, l1_weights, l2_weights, shared_l1_weights, shared_l2_weight
     )
 
 
-_PUBLIC_API = (
+_UNCONDITIONAL_API = (
     # Runtime
     'init',
     'set_num_sms', 'get_num_sms',
@@ -313,6 +307,14 @@ _PUBLIC_API = (
     # cuBLASLt GEMMs
     'cublaslt_gemm_nt', 'cublaslt_gemm_nn',
     'cublaslt_gemm_tn', 'cublaslt_gemm_tt',
+    # Mega MoE (imported via deep_gemm.mega; always defined, fails at call if unregistered)
+    'get_symm_buffer_size_for_mega_moe',
+    'slice_symm_buffer_for_mega_moe',
+    'fp8_fp4_mega_moe',
+    'bf16_mega_moe',
+)
+
+_DEEP_GEMM_API = (
     # FP8/FP4 GEMMs
     'fp8_fp4_gemm_nt', 'fp8_fp4_gemm_nn',
     'fp8_fp4_gemm_tn', 'fp8_fp4_gemm_tt',
@@ -351,14 +353,9 @@ _PUBLIC_API = (
     'get_mn_major_tma_aligned_tensor',
     'get_mn_major_tma_aligned_packed_ue8m0_tensor',
     'get_k_grouped_mn_major_tma_aligned_packed_ue8m0_tensor',
-    # Mega MoE
+    # Mega helpers (guarded)
     'get_token_alignment_for_mega_moe',
     'get_block_m_for_mega_moe',
-    'get_symm_buffer_size_for_mega_moe',
-    'slice_symm_buffer_for_mega_moe',
-    'fp8_fp4_mega_moe',
-    'bf16_mega_moe',
 )
 
-# Only export names actually bound (guarded ops may be absent on older CUDA builds).
-__all__ = [name for name in _PUBLIC_API if name in globals()]
+__all__ = list(_UNCONDITIONAL_API) + [name for name in _DEEP_GEMM_API if name in globals()]
