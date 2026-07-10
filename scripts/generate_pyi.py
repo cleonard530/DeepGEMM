@@ -1,43 +1,4 @@
-"""
-Generate deep_gemm/_C.pyi from TORCH_LIBRARY schemas and deep_gemm/_C.py wrappers.
-
-Pipeline (one op at a time, e.g. fp8_fp4_gemm_nt):
-
-  1. extract_m_def_statements(csrc/)
-       Scan csrc/apis/*.hpp for m.def("...schema...") registrations.
-       Returns a flat list of raw m.def(...) statement strings.
-
-  2. parse_m_def_statement(stmt) -> parse_torch_schema(schema)
-       Split the schema string into structured params (flat, as registered in C++).
-       Example output:
-         name='fp8_fp4_gemm_nt'
-         parameters=[
-           {'name': 'a',   'py_type': 'torch.Tensor', 'default': None},
-           {'name': 'sfa', 'py_type': 'torch.Tensor', 'default': None},
-           {'name': 'b',   'py_type': 'torch.Tensor', 'default': None},
-           ...
-         ]
-
-  3. parse_c_py_metadata(deep_gemm/_C.py)
-       Read wrapper defaults from the Python shim (including names exported via
-       globals().update aliases, so fp8_gemm_nt picks up fp8_fp4_gemm_nt defaults).
-       Example:
-         defaults['fp8_einsum']['recipe'] = '(1, 128, 128)'
-
-  4. adjust_for_c_py_wrapper(name, parameters, wrapper_defaults)
-       Reshape flat schema params to match the public _C.py API.
-       Example: (a, sfa), (b, sfb) -> a: tuple[Tensor, Tensor], b: tuple[...]
-
-  5. apply_wrapper_defaults(name, parameters, wrapper_defaults)
-       Overlay defaults from _C.py where they differ from the TORCH schema.
-       Example: recipe=None in schema -> recipe=(1, 128, 128) from fp8_einsum()
-
-  6. generate_pyi_function(...) -> str
-       Render one stub def line block for the .pyi file.
-
-  7. generate_pyi_file_content(...)
-       Emit one stub per TORCH_LIBRARY op found in csrc/.
-"""
+"""Generate deep_gemm/_C.pyi from TORCH_LIBRARY schemas and deep_gemm/_C.py wrappers."""
 import ast
 import re
 from pathlib import Path
@@ -47,14 +8,8 @@ _Q_TUPLE = 'tuple[torch.Tensor, Optional[torch.Tensor]]'
 
 
 class BracketTracker:
-    """
-    Tracks nesting levels of various brackets in C++ code:
-      - () → paren
-      - [] → bracket
-      - {} → brace
-      - <> → angle (treated as template brackets only at top level)
-    Provides is_top_level() to check if currently outside all brackets.
-    """
+    """Track () [] {} <> nesting for top-level comma/default splitting."""
+
     def __init__(self):
         self.paren = 0      # ()
         self.bracket = 0    # []
@@ -62,9 +17,6 @@ class BracketTracker:
         self.angle = 0      # <>
 
     def update(self, char: str):
-        """
-        Update internal counters based on the given character.
-        """
         if char == '(':
             self.paren += 1
         elif char == ')':
@@ -85,29 +37,14 @@ class BracketTracker:
             self.angle -= 1
 
     def _in_top_level_of_other_brackets(self):
-        """
-        Check if not inside parentheses, square brackets, or braces (for correct template bracket recognition).
-        """
         return self.paren == 0 and self.bracket == 0 and self.brace == 0
 
     def is_top_level(self):
-        """
-        Check if completely at top level (all bracket counters are zero).
-        """
-        return (self.paren == 0 and
-                self.bracket == 0 and
-                self.brace == 0 and
-                self.angle == 0)
+        return self.paren == 0 and self.bracket == 0 and self.brace == 0 and self.angle == 0
 
 
 def split_top_level_commas(value: str) -> list[str]:
-    """Split a string on top-level commas.
-
-    Example:
-      "Tensor a, Tensor? c=None, int[]? recipe=None"
-        -> ["Tensor a", "Tensor? c=None", "int[]? recipe=None"]
-    Commas inside brackets/parens (e.g. Tensor(d!) d) are ignored.
-    """
+    """Split on commas not nested inside brackets."""
     parts = []
     current = []
     tracker = BracketTracker()
@@ -125,7 +62,7 @@ def split_top_level_commas(value: str) -> list[str]:
 
 
 def find_top_level_equals(value: str) -> int:
-    """Return index of top-level '=' in a schema argument, or -1."""
+    """Return index of top-level '=', or -1."""
     tracker = BracketTracker()
     for i, ch in enumerate(value):
         if ch in '()[]{}<>':
@@ -136,14 +73,7 @@ def find_top_level_equals(value: str) -> int:
 
 
 def schema_type_to_python(type_str: str) -> str:
-    """Map a TORCH_LIBRARY schema type to a Python type annotation string.
-
-    Examples:
-      "Tensor"     -> "torch.Tensor"
-      "Tensor?"    -> "Optional[torch.Tensor]"
-      "int[]"      -> "list[int]"
-      "int[]?"     -> "Optional[list[int]]"
-    """
+    """Map a TORCH schema type to a Python annotation."""
     type_str = type_str.strip()
     optional = type_str.endswith('?')
     if optional:
@@ -171,7 +101,7 @@ def schema_type_to_python(type_str: str) -> str:
 
 
 def schema_return_to_python(return_str: str) -> str:
-    """Map a TORCH_LIBRARY return type to a Python annotation."""
+    """Map a TORCH schema return type to a Python annotation."""
     return_str = return_str.strip()
     if return_str == '()':
         return 'None'
@@ -211,12 +141,7 @@ def schema_default_to_python(default_str: str) -> str:
 
 
 def parse_schema_arg(arg_str: str) -> dict:
-    """Parse one TORCH schema argument such as 'Tensor? c=None'.
-
-    Example:
-      "str compiled_dims='nk'"
-        -> {'name': 'compiled_dims', 'py_type': 'str', 'default': "'nk'"}
-    """
+    """Parse one TORCH schema argument such as 'Tensor? c=None'."""
     arg_str = arg_str.strip()
     if not arg_str:
         raise ValueError('empty schema argument')
@@ -238,23 +163,7 @@ def parse_schema_arg(arg_str: str) -> dict:
 
 
 def parse_torch_schema(schema: str) -> dict:
-    """Parse a TORCH_LIBRARY schema into name, parameters, and return type.
-
-    Example input:
-      "fp8_fp4_gemm_nt(Tensor a, Tensor sfa, Tensor b, Tensor sfb, "
-      "Tensor(d!) d, Tensor? c=None, str compiled_dims='nk') -> ()"
-
-    Example output (abbreviated):
-      {
-        'python_function_name': 'fp8_fp4_gemm_nt',
-        'return_type': 'None',
-        'parameters': [
-          {'name': 'a', 'py_type': 'torch.Tensor', 'default': None},
-          {'name': 'sfa', 'py_type': 'torch.Tensor', 'default': None},
-          ...
-        ],
-      }
-    """
+    """Parse a TORCH schema into name, parameters, and return type."""
     arrow = schema.rfind(' -> ')
     if arrow == -1:
         raise ValueError(f'schema missing return type: {schema!r}')
@@ -294,11 +203,7 @@ def parse_torch_schema(schema: str) -> dict:
 
 
 def _merge_named_pairs(parameters: list[dict], pairs: tuple[tuple[str, str], ...]) -> list[dict]:
-    """Replace (left, right) arg pairs with a single tuple-typed parameter.
-
-    Example: pairs=(('a', 'sfa'), ('b', 'sfb'))
-      [a, sfa, b, sfb, d, ...]  ->  [a: tuple[Tensor, Tensor], b: tuple[...], d, ...]
-    """
+    """Replace (tensor, scale_factor) arg pairs with one tuple-typed parameter."""
     drop = {right for left, right in pairs}
     merged_left = {left for left, _ in pairs}
     out = []
@@ -330,13 +235,7 @@ def _is_tensor_scale_factor_pair(base_name: str, sf_name: str) -> bool:
 
 
 def detect_tensor_sf_pairs(parameters: list[dict]) -> list[tuple[str, str]]:
-    """Detect consecutive (tensor, scale_factor) arg pairs in a TORCH schema.
-
-    Examples (flat schema params from step 2):
-      [a, sfa, b, sfb, ...]           -> [('a', 'sfa'), ('b', 'sfb')]
-      [kv, kv_sf, weights, ...]       -> [('kv', 'kv_sf')]
-      [l1_weights, l1_weights_sf, ...] -> [('l1_weights', 'l1_weights_sf')]
-    """
+    """Detect consecutive (tensor, scale_factor) arg pairs."""
     pairs = []
     i = 0
     while i < len(parameters) - 1:
@@ -354,12 +253,7 @@ def detect_tensor_sf_pairs(parameters: list[dict]) -> list[tuple[str, str]]:
 
 
 def _apply_q_qsf_merge(parameters: list[dict]) -> list[dict]:
-    """Merge optional q_sf into q for attention wrappers that accept either form.
-
-    Example schema: q, q_sf, kv, kv_sf, ...
-      -> q: tuple[Tensor, Optional[Tensor]], kv, kv_sf, ...
-    (q_sf is dropped; kv/kv_sf merging happens separately via detect_tensor_sf_pairs.)
-    """
+    """Merge optional q_sf into q for attention wrappers."""
     if not any(param['name'] == 'q_sf' for param in parameters):
         return [dict(param) for param in parameters]
 
@@ -382,10 +276,7 @@ def _maybe_widen_int_list_value_param(parameters: list[dict]) -> None:
 
 
 def _promote_int_list_tuple_types(op_name: str, parameters: list[dict]) -> None:
-    """Promote int[] schema params to fixed-size tuples matching the public _C.py API.
-
-    TORCH schemas use int[] for C++ list/variant conversions; callers pass tuples.
-    """
+    """Promote int[] schema params to fixed-size tuples matching the public _C.py API."""
     for param in parameters:
         name = param['name']
         py_type = param['py_type']
@@ -411,16 +302,7 @@ def adjust_for_c_py_wrapper(
     parameters: list[dict],
     wrapper_defaults: dict[str, dict[str, str]] | None = None,
 ) -> list[dict]:
-    """
-    Adjust parsed schema parameters to match deep_gemm._C Python wrappers.
-
-    TORCH_LIBRARY registers flat tensor/scales args; _C.py preserves the legacy
-    pybind API by accepting (tensor, scale_factor) tuples for many kernels.
-
-    Example transformation for fp8_fp4_gemm_nt:
-      schema:  a, sfa, b, sfb, d, c=None, recipe=None, compiled_dims='nk', ...
-      stub:    a: tuple[Tensor, Tensor], b: tuple[Tensor, Tensor], d, c=None, ...
-    """
+    """Adjust flat schema params to match deep_gemm._C Python wrappers."""
     parameters = _apply_q_qsf_merge(parameters)
 
     pairs = detect_tensor_sf_pairs(parameters)
@@ -444,7 +326,7 @@ def sanitize_param_name(name: str) -> str:
 
 
 def format_ast_default(node: ast.AST) -> str:
-    """Convert an AST default value node to a Python expression string for stubs."""
+    """Convert an AST default value node to a Python expression string."""
     if isinstance(node, ast.Constant):
         if node.value is None:
             return 'None'
@@ -496,18 +378,7 @@ def _is_globals_update_call(node: ast.Call) -> bool:
 
 
 def parse_c_py_metadata(c_py_path: Path) -> dict[str, dict[str, str]]:
-    """Parse wrapper defaults from deep_gemm/_C.py.
-
-    Walks the AST (does not import or execute _C.py).
-
-    Defaults example — from:
-      def fp8_einsum(..., recipe=(1, 128, 128)):
-    produces:
-      defaults['fp8_einsum']['recipe'] = '(1, 128, 128)'
-
-    Also copies defaults onto legacy alias names from globals().update(...) so
-    wrapper defaults apply when the public name differs from the TORCH op name.
-    """
+    """Parse wrapper defaults from deep_gemm/_C.py without importing it."""
     source = c_py_path.read_text(encoding='utf-8')
     module = ast.parse(source, filename=str(c_py_path))
 
@@ -537,16 +408,7 @@ def parse_c_py_metadata(c_py_path: Path) -> dict[str, dict[str, str]]:
 
 
 def extract_m_def_statements(root_path) -> list[str]:
-    """
-    Scan all C++ files under root_path and extract all m.def(...) statements.
-
-    Returns a flat list of raw statement strings (one per registration found).
-    Supports multi-line m.def(...) calls. This is pipeline step 1.
-
-    Example match in gemm.hpp:
-      m.def(
-          "fp8_fp4_gemm_nt(Tensor a, Tensor sfa, ...) -> ()");
-    """
+    """Scan C++ sources under root_path for m.def(...) registrations."""
     statements = []
     extensions = {'.hpp', '.cpp', '.h', '.cc'}
 
@@ -569,14 +431,11 @@ def extract_m_def_statements(root_path) -> list[str]:
         while i < len(lines):
             line = lines[i]
             if 'm.def(' in line:
-                # Found a potential starting line
-                # Check if it's a comment
                 stripped = line.lstrip()
                 if stripped.startswith('//') or stripped.startswith('/*'):
                     i += 1
                     continue
 
-                # Try to match the complete m.def(...) call
                 paren_count = 0
                 j = i
                 found_start = False
@@ -592,7 +451,6 @@ def extract_m_def_statements(root_path) -> list[str]:
                             if found_start:
                                 paren_count -= 1
                                 if paren_count == 0:
-                                    # Found complete statement
                                     full_stmt = ''.join(lines[i:j+1]).rstrip()
                                     m_def_list.append(full_stmt)
                                     i = j
@@ -609,20 +467,7 @@ def extract_m_def_statements(root_path) -> list[str]:
 
 
 def parse_m_def_statement(m_def_str):
-    """
-    Parse a TORCH_LIBRARY m.def(...) statement (pipeline step 2).
-
-    DeepGEMM registers ops via TORCH_LIBRARY_FRAGMENT; the first m.def argument
-    is always a schema string. Extra args like DEEP_GEMM_IMPL(...) are ignored.
-
-    Example input:
-      m.def("bf16_gemm_nt(Tensor a, Tensor b, Tensor(d!) d, "
-            "Tensor? c=None, str compiled_dims='nk') -> ()",
-            DEEP_GEMM_IMPL(bf16_gemm_nt));
-
-    Delegates to parse_torch_schema() on the first string literal.
-    """
-    # Extract top-level arguments
+    """Parse a TORCH_LIBRARY m.def(...) statement."""
     start = m_def_str.find('m.def(')
     if start == -1:
         raise ValueError(f'[{m_def_str}] Could not find m.def start position')
@@ -644,14 +489,10 @@ def parse_m_def_statement(m_def_str):
         raise ValueError(f'[{m_def_str}] m.def parentheses not closed')
 
     args_content = m_def_str[content_start:content_end]
-
-    # Split arguments using BracketTracker
     args_list = split_top_level_commas(args_content)
-
     if not args_list:
         raise ValueError(f'[{m_def_str}] m.def has no arguments')
 
-    # Extract operator schema from the first string literal
     first = args_list[0].strip()
     str_match = re.match(r'^"([^"\\]*(?:\\.[^"\\]*)*)"', first)
     if not str_match:
@@ -661,16 +502,7 @@ def parse_m_def_statement(m_def_str):
 
 
 def apply_wrapper_defaults(name: str, parameters: list[dict], wrapper_defaults: dict[str, dict[str, str]]) -> list[dict]:
-    """Overlay public API defaults from deep_gemm/_C.py onto schema-derived parameters.
-
-    Schema defaults come from the TORCH registration string; wrapper defaults reflect
-    what callers actually get from _C.py.
-
-    Example for fp8_einsum:
-      schema default:  recipe=None
-      wrapper default: recipe=(1, 128, 128)   # from def fp8_einsum(..., recipe=(1, 128, 128))
-      stub result:     recipe: tuple[int, int, int] = (1, 128, 128)
-    """
+    """Overlay public API defaults from deep_gemm/_C.py onto schema-derived parameters."""
     by_name = wrapper_defaults.get(name, {})
     if not by_name:
         return parameters
@@ -685,17 +517,7 @@ def apply_wrapper_defaults(name: str, parameters: list[dict], wrapper_defaults: 
 
 
 def generate_pyi_function(parsed, wrapper_defaults=None):
-    """Generate a typed .pyi stub for one registered op (pipeline steps 4-6).
-
-    Example final output for fp8_fp4_gemm_nt:
-      def fp8_fp4_gemm_nt(
-          a: tuple[torch.Tensor, torch.Tensor],
-          b: tuple[torch.Tensor, torch.Tensor],
-          d: torch.Tensor,
-          c: Optional[torch.Tensor] = None,
-          ...
-      ) -> None: ...
-    """
+    """Generate a typed .pyi stub for one registered op."""
     py_name = parsed['python_function_name']
     parameters = adjust_for_c_py_wrapper(
         py_name,
@@ -725,12 +547,7 @@ def generate_pyi_file_content(
     module_name: str = 'my_module',
     wrapper_defaults=None,
 ):
-    """Assemble the full .pyi file from all parsed ops (pipeline step 7).
-
-    parsed_ops: list of dicts returned by parse_m_def_statement / parse_torch_schema.
-
-    - One stub per TORCH_LIBRARY op found in csrc/
-    """
+    """Assemble the full .pyi file from parsed TORCH ops."""
     decls = []
 
     for parsed in parsed_ops:
@@ -747,6 +564,7 @@ def generate_pyi_file_content(
         'from typing import Any, Optional',
         'import torch',
         '',
+        '',
     ]
 
     for decl in decls:
@@ -756,12 +574,10 @@ def generate_pyi_file_content(
 
 
 def generate_pyi_file(name, root, output_dir='.', c_py_path=None):
-    """Orchestrate the full pipeline and write stubs/<name>.pyi."""
-    # Step 1-2: scan csrc/ for m.def(...) and parse each TORCH schema.
+    """Generate stubs/<name>.pyi from csrc/ schemas and optional _C.py wrapper defaults."""
     m_def_statements = extract_m_def_statements(root)
     parsed_ops = [parse_m_def_statement(stmt) for stmt in m_def_statements]
 
-    # Step 3: read wrapper defaults from deep_gemm/_C.py.
     wrapper_defaults = {}
     if c_py_path is not None:
         c_py_path = Path(c_py_path)
@@ -770,7 +586,6 @@ def generate_pyi_file(name, root, output_dir='.', c_py_path=None):
         else:
             print(f'Warning: wrapper file not found: {c_py_path}')
 
-    # Steps 4-7: adjust params, apply defaults, render stubs, write file.
     pyi_content = generate_pyi_file_content(
         parsed_ops,
         module_name=name,
@@ -784,66 +599,3 @@ def generate_pyi_file(name, root, output_dir='.', c_py_path=None):
         f.write(pyi_content)
 
     print(f'.pyi file generated: {output_path}')
-
-
-def main(argv=None) -> int:
-    import argparse
-    import sys
-
-    parser = argparse.ArgumentParser(
-        description='Generate deep_gemm/_C.pyi stubs from TORCH_LIBRARY schemas.',
-    )
-    parser.add_argument('--name', default='_C', help='Module name for the .pyi file (default: _C)')
-    parser.add_argument('--root', default='./csrc', help='Root to scan for m.def(...) (default: ./csrc)')
-    parser.add_argument('--output-dir', default='./stubs', help='Output directory (default: ./stubs)')
-    parser.add_argument(
-        '--c-py',
-        default='./deep_gemm/_C.py',
-        help='Python wrapper module to read public API defaults from (default: ./deep_gemm/_C.py)',
-    )
-    parser.add_argument(
-        '--check',
-        action='store_true',
-        help='Verify the output has typed stubs (no generic *args, **kwargs)',
-    )
-    args = parser.parse_args(argv)
-
-    repo_root = Path(__file__).resolve().parent.parent
-    root = Path(args.root)
-    output_dir = Path(args.output_dir)
-    if not root.is_absolute():
-        root = repo_root / root
-    if not output_dir.is_absolute():
-        output_dir = repo_root / output_dir
-
-    c_py_path = Path(args.c_py)
-    if not c_py_path.is_absolute():
-        c_py_path = repo_root / c_py_path
-
-    generate_pyi_file(
-        name=args.name,
-        root=str(root),
-        output_dir=str(output_dir),
-        c_py_path=str(c_py_path),
-    )
-
-    pyi_path = output_dir / f'{args.name}.pyi'
-    if args.check:
-        content = pyi_path.read_text(encoding='utf-8')
-        generic_count = content.count('*args, **kwargs')
-        stub_count = content.count('def ')
-        if stub_count == 0:
-            print(f'CHECK FAILED: no function stubs in {pyi_path}', file=sys.stderr)
-            return 1
-        print(
-            f'CHECK PASSED: {stub_count} stubs in {pyi_path} '
-            f'({stub_count - generic_count} typed, {generic_count} generic)',
-        )
-        if generic_count > 0:
-            return 1
-    return 0
-
-
-if __name__ == '__main__':
-    import sys
-    raise SystemExit(main())
