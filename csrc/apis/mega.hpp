@@ -170,17 +170,9 @@ static int64_t get_symm_buffer_size_for_mega_moe(
 using SymmBufferSlice = std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor,
                                    at::Tensor, at::Tensor, at::Tensor, at::Tensor>;
 
-static SymmBufferSlice slice_symm_buffer_for_mega_moe(
+static SymmBufferSlice slice_symm_buffer_from_layout(
     const torch::Tensor& buffer,
-    const int& num_ranks, const int& num_experts,
-    const int& num_max_tokens_per_rank, const int& num_topk,
-    const int& hidden, const int& intermediate_hidden,
-    const std::string& mma_type, const std::string& activation,
-    const int& num_ring_tokens) {
-    const auto layout_info = build_symm_buffer_layout(
-        num_ranks, num_experts, num_max_tokens_per_rank, num_topk,
-        hidden, intermediate_hidden, mma_type, activation, num_ring_tokens);
-
+    const SymmBufferLayoutInfo& layout_info) {
     // NOTES: `x_sf` is K-major, while `l1_acts_sf` and `l2_acts_sf` are M-major
     auto x = torch::from_blob(
         math::advance_ptr(buffer.data_ptr(), layout_info.input_token_base),
@@ -217,6 +209,19 @@ static SymmBufferSlice slice_symm_buffer_for_mega_moe(
         {1, layout_info.num_sf_ring_tokens},
         torch::TensorOptions().dtype(torch::kInt).device(buffer.device())) : torch::Tensor();
     return std::make_tuple(x, x_sf, topk_idx, topk_weights, l1_acts, l1_acts_sf, l2_acts, l2_acts_sf);
+}
+
+static SymmBufferSlice slice_symm_buffer_for_mega_moe(
+    const torch::Tensor& buffer,
+    const int& num_ranks, const int& num_experts,
+    const int& num_max_tokens_per_rank, const int& num_topk,
+    const int& hidden, const int& intermediate_hidden,
+    const std::string& mma_type, const std::string& activation,
+    const int& num_ring_tokens) {
+    const auto layout_info = build_symm_buffer_layout(
+        num_ranks, num_experts, num_max_tokens_per_rank, num_topk,
+        hidden, intermediate_hidden, mma_type, activation, num_ring_tokens);
+    return slice_symm_buffer_from_layout(buffer, layout_info);
 }
 
 static void fp8_fp4_mega_moe(
@@ -276,21 +281,19 @@ static void fp8_fp4_mega_moe(
         DG_HOST_ASSERT(cumulative_local_expert_recv_stats->is_contiguous());
     }
 
-    // Check buffer bytes
+    // Check buffer bytes and slice views from one shared layout plan.
     const auto num_ranks = static_cast<int>(sym_buffer_ptrs.size());
     const auto num_experts_ = num_experts_per_rank * num_ranks;
-    const auto num_required_bytes = get_symm_buffer_size_for_mega_moe(
+    const auto layout_info = build_symm_buffer_layout(
         num_ranks, num_experts,
         num_max_tokens_per_rank, num_topk,
         hidden, intermediate_hidden,
         "fp8xfp4", activation, num_ring_tokens);
-    DG_HOST_ASSERT(sym_buffer.nbytes() >= static_cast<size_t>(num_required_bytes));
+    DG_HOST_ASSERT(sym_buffer.nbytes() >= static_cast<size_t>(layout_info.num_bytes));
     DG_HOST_ASSERT(num_experts == num_experts_);
 
     const auto [x, x_sf, topk_idx, topk_weights, l1_acts, l1_acts_sf, l2_acts, l2_acts_sf] =
-        slice_symm_buffer_for_mega_moe(
-            sym_buffer, num_ranks, num_experts, num_max_tokens_per_rank, num_topk,
-            hidden, intermediate_hidden, "fp8xfp4", activation, num_ring_tokens);
+        slice_symm_buffer_from_layout(sym_buffer, layout_info);
 
     // Dispatch into different architectures
     if (arch_major == 10) {
@@ -360,21 +363,19 @@ static void bf16_mega_moe(
         DG_HOST_ASSERT(cumulative_local_expert_recv_stats->is_contiguous());
     }
 
-    // Check buffer bytes
+    // Check buffer bytes and slice views from one shared layout plan.
     const auto num_ranks = static_cast<int>(sym_buffer_ptrs.size());
     const auto num_experts_ = num_experts_per_rank * num_ranks;
-    const auto num_required_bytes = get_symm_buffer_size_for_mega_moe(
+    const auto layout_info = build_symm_buffer_layout(
         num_ranks, num_experts,
         num_max_tokens_per_rank, num_topk,
         hidden, intermediate_hidden,
         "bf16xbf16", activation, num_ring_tokens);
-    DG_HOST_ASSERT(sym_buffer.nbytes() >= static_cast<size_t>(num_required_bytes));
+    DG_HOST_ASSERT(sym_buffer.nbytes() >= static_cast<size_t>(layout_info.num_bytes));
     DG_HOST_ASSERT(num_experts == num_experts_);
 
     const auto [x, _x_sf, topk_idx, topk_weights, l1_acts, _l1_acts_sf, l2_acts, _l2_acts_sf] =
-        slice_symm_buffer_for_mega_moe(
-            sym_buffer, num_ranks, num_experts, num_max_tokens_per_rank, num_topk,
-            hidden, intermediate_hidden, "bf16xbf16", activation, num_ring_tokens);
+        slice_symm_buffer_from_layout(sym_buffer, layout_info);
 
     // Dispatch into different architectures
     if (arch_major == 10) {
