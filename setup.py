@@ -128,7 +128,12 @@ class CustomBuildPy(build_py):
         build_py.run(self)
 
     def generate_pyi_file(self):
-        generate_pyi_file(name='_C', root='./csrc', output_dir='./stubs')
+        generate_pyi_file(
+            name='_C',
+            root='./csrc',
+            output_dir='./stubs',
+            c_py_path='./deep_gemm/_C.py',
+        )
         pyi_source = os.path.join(current_dir, 'stubs', '_C.pyi')
         pyi_target = os.path.join(self.build_lib, 'deep_gemm', '_C.pyi')
 
