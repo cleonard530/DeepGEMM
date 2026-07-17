@@ -1,4 +1,5 @@
 #include "utils/torch_compat.hpp"
+#include "utils/registration.h"
 
 #include "apis/attention.hpp"
 #include "apis/einsum.hpp"
@@ -8,3 +9,5 @@
 #include "apis/mega.hpp"
 #include "apis/sm90_mega.hpp"
 #include "apis/runtime.hpp"
+
+REGISTER_EXTENSION(_C_extension)
