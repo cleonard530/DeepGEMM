@@ -18,7 +18,8 @@
 #include "../jit_kernels/impls/sm120_fp8_fp4_gemm_1d1d.hpp"
 #include "../jit_kernels/impls/smxx_cublaslt.hpp"
 #endif
-#include "../torch_library_macros.hpp"
+#include <torch/library.h>
+#include "../torch_library_utils.hpp"
 
 namespace deep_gemm::einsum {
 
@@ -271,6 +272,8 @@ static void fp8_einsum(const std::string& expr,
 }  // namespace deep_gemm::einsum
 
 namespace deep_gemm::torch_registration {
+
+using namespace deep_gemm::torch_utils;
 
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
 static void einsum(const std::string& expr,

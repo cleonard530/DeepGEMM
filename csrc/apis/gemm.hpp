@@ -15,7 +15,8 @@
 #include "../jit_kernels/impls/smxx_cublaslt.hpp"
 
 #include "layout.hpp"
-#include "../torch_library_macros.hpp"
+#include <torch/library.h>
+#include "../torch_library_utils.hpp"
 
 namespace deep_gemm::gemm {
 
@@ -786,6 +787,8 @@ static void cublaslt_gemm_tt(const torch::Tensor& a, const torch::Tensor& b,
 }  // namespace deep_gemm::gemm
 
 namespace deep_gemm::torch_registration {
+
+using namespace deep_gemm::torch_utils;
 
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
 static void fp8_fp4_gemm_nt(
