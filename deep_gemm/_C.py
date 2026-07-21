@@ -1,17 +1,6 @@
 import torch
 from pathlib import Path
 
-_SCALAR_TYPE = {
-    torch.float32: 6,
-    torch.bfloat16: 15,
-}
-
-
-def _as_scalar_type(dtype):
-    if isinstance(dtype, int):
-        return dtype
-    return _SCALAR_TYPE.get(dtype, 6)
-
 
 def _load_extension():
     so_files = list(Path(__file__).parent.glob('_C_extension*.so'))
@@ -171,25 +160,25 @@ def _register_deep_gemm_kernels():
         kv_fp, kv_sf = _unpack_kv(kv)
         return _torch_ops.fp8_fp4_mqa_logits(
             q_fp, q_sf, kv_fp, kv_sf, weights, cu_seq_len_k_start, cu_seq_len_k_end,
-            clean_logits, max_seqlen_k, _as_scalar_type(logits_dtype),
+            clean_logits, max_seqlen_k, logits_dtype,
         )
 
-    def fp8_fp4_paged_mqa_logits(q, kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len,
+    def fp8_fp4_paged_mqa_logits(q, fused_kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len,
                                  clean_logits=False, logits_dtype=torch.float32, indices=None):
         q_fp, q_sf = _unpack_q(q)
         return _torch_ops.fp8_fp4_paged_mqa_logits(
-            q_fp, q_sf, kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len,
-            clean_logits, _as_scalar_type(logits_dtype), indices,
+            q_fp, q_sf, fused_kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len,
+            clean_logits, logits_dtype, indices,
         )
 
     def fp8_mqa_logits(q, kv, weights, cu_seq_len_k_start, cu_seq_len_k_end, clean_logits=True, max_seqlen_k=0):
         kv_fp, kv_sf = _unpack_kv(kv)
         return _torch_ops.fp8_mqa_logits(q, kv_fp, kv_sf, weights, cu_seq_len_k_start, cu_seq_len_k_end, clean_logits, max_seqlen_k)
 
-    def fp8_paged_mqa_logits(q, kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len,
+    def fp8_paged_mqa_logits(q, fused_kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len,
                              clean_logits=False, indices=None):
         return _torch_ops.fp8_paged_mqa_logits(
-            q, kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len, clean_logits, indices,
+            q, fused_kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len, clean_logits, indices,
         )
 
     globals().update({
@@ -253,8 +242,8 @@ def get_symm_buffer_size_for_mega_moe(*args, **kwargs):
     return _torch_ops.get_symm_buffer_size_for_mega_moe(*args, **kwargs)
 
 
-def slice_symm_buffer_for_mega_moe(buffer, *args, **kwargs):
-    return _torch_ops.slice_symm_buffer_for_mega_moe(buffer, *args, **kwargs)
+def _slice_symm_buffer_for_mega_moe(buffer, *args, **kwargs):
+    return _torch_ops._slice_symm_buffer_for_mega_moe(buffer, *args, **kwargs)
 
 
 # DG_TENSORMAP_COMPATIBLE — mega.hpp (C++ impl conditional; matches legacy pybind export guard)
@@ -264,32 +253,32 @@ _bind_guarded_ops(
 )
 
 
-def fp8_fp4_mega_moe(y, l1_weights, l2_weights, shared_l1_weights, shared_l2_weights,
-                     cumulative_local_expert_recv_stats, sym_buffer,
+def fp8_fp4_mega_moe(y, l1_weights_tuple, l2_weights_tuple, shared_l1_weights_tuple_opt,
+                     shared_l2_weights_tuple_opt, cumulative_local_expert_recv_stats, sym_buffer,
                      sym_buffer_ptrs, rank_idx, num_max_tokens_per_rank, num_experts, num_topk, recipe,
-                     activation, activation_clamp, fast_math):
+                     activation, activation_clamp_opt, fast_math):
     shared_l1_w = shared_l1_sf = shared_l2_w = shared_l2_sf = None
-    if shared_l1_weights is not None:
-        shared_l1_w, shared_l1_sf = shared_l1_weights
-        shared_l2_w, shared_l2_sf = shared_l2_weights
+    if shared_l1_weights_tuple_opt is not None:
+        shared_l1_w, shared_l1_sf = shared_l1_weights_tuple_opt
+        shared_l2_w, shared_l2_sf = shared_l2_weights_tuple_opt
     return _torch_ops.fp8_fp4_mega_moe(
-        y, l1_weights[0], l1_weights[1], l2_weights[0], l2_weights[1],
+        y, l1_weights_tuple[0], l1_weights_tuple[1], l2_weights_tuple[0], l2_weights_tuple[1],
         shared_l1_w, shared_l1_sf, shared_l2_w, shared_l2_sf,
         cumulative_local_expert_recv_stats, sym_buffer, list(sym_buffer_ptrs), rank_idx,
         num_max_tokens_per_rank, num_experts, num_topk, list(recipe), activation,
-        activation_clamp, fast_math,
+        activation_clamp_opt, fast_math,
     )
 
 
-def bf16_mega_moe(y, l1_weights, l2_weights, shared_l1_weights, shared_l2_weights,
+def bf16_mega_moe(y, l1_weights, l2_weights, shared_l1_weights_opt, shared_l2_weights_opt,
                   cumulative_local_expert_recv_stats, sym_buffer,
                   sym_buffer_ptrs, rank_idx, num_max_tokens_per_rank, num_experts, num_topk,
-                  activation, activation_clamp, fast_math):
+                  activation, activation_clamp_opt, fast_math):
     return _torch_ops.bf16_mega_moe(
-        y, l1_weights, l2_weights, shared_l1_weights, shared_l2_weights,
+        y, l1_weights, l2_weights, shared_l1_weights_opt, shared_l2_weights_opt,
         cumulative_local_expert_recv_stats, sym_buffer,
         list(sym_buffer_ptrs), rank_idx, num_max_tokens_per_rank, num_experts, num_topk,
-        activation, activation_clamp, fast_math,
+        activation, activation_clamp_opt, fast_math,
     )
 
 
@@ -309,7 +298,7 @@ _UNCONDITIONAL_API = (
     'cublaslt_gemm_tn', 'cublaslt_gemm_tt',
     # Mega MoE (imported via deep_gemm.mega; always defined, fails at call if unregistered)
     'get_symm_buffer_size_for_mega_moe',
-    'slice_symm_buffer_for_mega_moe',
+    '_slice_symm_buffer_for_mega_moe',
     'fp8_fp4_mega_moe',
     'bf16_mega_moe',
 )

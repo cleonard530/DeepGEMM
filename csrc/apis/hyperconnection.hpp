@@ -7,7 +7,7 @@
 #include "../jit_kernels/impls/sm100_tf32_hc_prenorm_gemm.hpp"
 #include "../jit_kernels/impls/sm120_tf32_hc_prenorm_gemm.hpp"
 #endif
-#include "../torch_library_macros.hpp"
+#include <torch/library.h>
 
 namespace deep_gemm::hyperconnection {
 

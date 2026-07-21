@@ -7,7 +7,8 @@
 #if DG_TENSORMAP_COMPATIBLE
 #include "../jit_kernels/impls/smxx_layout.hpp"
 #endif
-#include "../torch_library_macros.hpp"
+#include <torch/library.h>
+#include "../torch_library_utils.hpp"
 
 namespace deep_gemm::layout {
 
@@ -142,6 +143,8 @@ static torch::Tensor transform_k_grouped_sf_into_required_layout(const torch::Te
 
 namespace deep_gemm::torch_registration {
 
+using namespace deep_gemm::torch_utils;
+
 #if DG_TENSORMAP_COMPATIBLE
 static torch::Tensor transform_sf_into_required_layout(
     const torch::Tensor& sf, const int64_t& mn, const int64_t& k,
@@ -207,7 +210,7 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
 #if DG_TENSORMAP_COMPATIBLE
     m.def(
         "transform_sf_into_required_layout(Tensor sf, int mn, int k, int[] recipe, int? num_groups=None, bool? is_sfa=None, bool disable_ue8m0_cast=False, Tensor? psum_layout=None) -> Tensor");
-    m.def("get_tma_aligned_size(int x, int element_size) -> int", DEEP_GEMM_IMPL(get_tma_aligned_size));
+    m.def("get_tma_aligned_size(int x, int element_size) -> int", TORCH_FN(deep_gemm::torch_registration::get_tma_aligned_size));
     m.def("get_mn_major_tma_aligned_tensor(Tensor sf) -> Tensor");
     m.def(
         "get_mn_major_tma_aligned_packed_ue8m0_tensor(Tensor sf, Tensor? psum_layout=None) -> Tensor");
@@ -216,11 +219,11 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
 #endif
 
     m.def("set_mk_alignment_for_contiguous_layout(int new_value) -> ()",
-          DEEP_GEMM_IMPL(set_mk_alignment_for_contiguous_layout));
+          TORCH_FN(deep_gemm::torch_registration::set_mk_alignment_for_contiguous_layout));
     m.def("get_mk_alignment_for_contiguous_layout() -> int",
-          DEEP_GEMM_IMPL(get_mk_alignment_for_contiguous_layout));
+          TORCH_FN(deep_gemm::torch_registration::get_mk_alignment_for_contiguous_layout));
     m.def("get_theoretical_mk_alignment_for_contiguous_layout(int? expected_m=None, int? num_groups=None) -> int",
-          DEEP_GEMM_IMPL(get_theoretical_mk_alignment_for_contiguous_layout));
+          TORCH_FN(deep_gemm::torch_registration::get_theoretical_mk_alignment_for_contiguous_layout));
 }
 
 TORCH_LIBRARY_IMPL(deep_gemm, CUDA, m) {
