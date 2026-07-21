@@ -7,7 +7,7 @@
 #include "../jit/device_runtime.hpp"
 #include "../jit_kernels/heuristics/runtime.hpp"
 
-#include "../torch_library_macros.hpp"
+#include <torch/library.h>
 
 namespace deep_gemm::torch_registration {
 
@@ -62,13 +62,13 @@ static void init(const std::string& library_root_path,
 }  // namespace deep_gemm::torch_registration
 
 TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
-    m.def("set_num_sms(int new_num_sms) -> ()", DEEP_GEMM_IMPL(set_num_sms));
-    m.def("get_num_sms() -> int", DEEP_GEMM_IMPL(get_num_sms));
-    m.def("set_tc_util(int new_tc_util) -> ()", DEEP_GEMM_IMPL(set_tc_util));
-    m.def("get_tc_util() -> int", DEEP_GEMM_IMPL(get_tc_util));
-    m.def("set_pdl(bool new_enable_pdl) -> ()", DEEP_GEMM_IMPL(set_pdl));
-    m.def("get_pdl() -> bool", DEEP_GEMM_IMPL(get_pdl));
-    m.def("set_ignore_compile_dims(bool new_value) -> ()", DEEP_GEMM_IMPL(set_ignore_compile_dims));
-    m.def("set_block_size_multiple_of(int[] value) -> ()", DEEP_GEMM_IMPL(set_block_size_multiple_of));
-    m.def("init(str library_root_path, str cuda_home_path_by_python) -> ()", DEEP_GEMM_IMPL(init));
+    m.def("set_num_sms(int new_num_sms) -> ()", TORCH_FN(deep_gemm::torch_registration::set_num_sms));
+    m.def("get_num_sms() -> int", TORCH_FN(deep_gemm::torch_registration::get_num_sms));
+    m.def("set_tc_util(int new_tc_util) -> ()", TORCH_FN(deep_gemm::torch_registration::set_tc_util));
+    m.def("get_tc_util() -> int", TORCH_FN(deep_gemm::torch_registration::get_tc_util));
+    m.def("set_pdl(bool new_enable_pdl) -> ()", TORCH_FN(deep_gemm::torch_registration::set_pdl));
+    m.def("get_pdl() -> bool", TORCH_FN(deep_gemm::torch_registration::get_pdl));
+    m.def("set_ignore_compile_dims(bool new_value) -> ()", TORCH_FN(deep_gemm::torch_registration::set_ignore_compile_dims));
+    m.def("set_block_size_multiple_of(int[] value) -> ()", TORCH_FN(deep_gemm::torch_registration::set_block_size_multiple_of));
+    m.def("init(str library_root_path, str cuda_home_path_by_python) -> ()", TORCH_FN(deep_gemm::torch_registration::init));
 }

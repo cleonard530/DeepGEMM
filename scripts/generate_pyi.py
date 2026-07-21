@@ -91,6 +91,8 @@ def schema_type_to_python(type_str: str) -> str:
         py_type = 'str'
     elif type_str == 'int[]':
         py_type = 'list[int]'
+    elif type_str == 'ScalarType':
+        py_type = 'torch.dtype'
     else:
         print(f'Warning: unrecognized schema type {type_str!r}, using Any')
         py_type = 'Any'
@@ -124,6 +126,22 @@ def schema_return_to_python(return_str: str) -> str:
     return 'Any'
 
 
+_SCALAR_TYPE_DEFAULTS = {
+    'float': 'torch.float32',
+    'float32': 'torch.float32',
+    'double': 'torch.float64',
+    'float64': 'torch.float64',
+    'half': 'torch.float16',
+    'float16': 'torch.float16',
+    'bfloat16': 'torch.bfloat16',
+    'byte': 'torch.uint8',
+    'char': 'torch.int8',
+    'short': 'torch.int16',
+    'int': 'torch.int32',
+    'long': 'torch.int64',
+}
+
+
 def schema_default_to_python(default_str: str) -> str:
     """Convert a TORCH schema default literal to a Python expression string."""
     default_str = default_str.strip()
@@ -132,6 +150,8 @@ def schema_default_to_python(default_str: str) -> str:
     if (default_str.startswith("'") and default_str.endswith("'")) or (
             default_str.startswith('"') and default_str.endswith('"')):
         return default_str
+    if default_str in _SCALAR_TYPE_DEFAULTS:
+        return _SCALAR_TYPE_DEFAULTS[default_str]
     if re.match(r'^[+-]?\d+$', default_str):
         return default_str
     if re.match(r'^[+-]?\d*\.\d+([eE][+-]?\d+)?$', default_str):
@@ -308,10 +328,6 @@ def adjust_for_c_py_wrapper(
     pairs = detect_tensor_sf_pairs(parameters)
     if pairs:
         parameters = _merge_named_pairs(parameters, tuple(pairs))
-
-    for param in parameters:
-        if param['name'] == 'logits_dtype':
-            param['py_type'] = 'torch.dtype'
 
     _maybe_widen_int_list_value_param(parameters)
     _promote_int_list_tuple_types(name, parameters)

@@ -8,7 +8,7 @@
 
 #include "utils/exception.hpp"
 
-namespace deep_gemm::torch_library_utils {
+namespace deep_gemm::torch_utils {
 
 inline std::optional<std::tuple<int, int, int>> list_to_recipe3(
     const c10::optional<c10::List<int64_t>>& recipe) {
@@ -61,4 +61,4 @@ inline std::optional<std::vector<int>> list_to_optional_vector_int(
     return out;
 }
 
-} // namespace deep_gemm::torch_library_utils
+} // namespace deep_gemm::torch_utils
