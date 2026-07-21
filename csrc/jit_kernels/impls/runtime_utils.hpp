@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cuda.h>
-#include "../../utils/torch_compat.hpp"
+#include <torch/all.h>
 
 #include "../heuristics/sm90.hpp"
 #include "../../jit/handle.hpp"

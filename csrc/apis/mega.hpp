@@ -3,7 +3,7 @@
 #include <string>
 #include <tuple>
 
-#include "../utils/torch_compat.hpp"
+#include <torch/all.h>
 #include <deep_gemm/common/types.cuh>
 #include <deep_gemm/scheduler/mega_moe.cuh>
 #include "../utils/math.hpp"
@@ -227,19 +227,6 @@ static SymmBufferSlice slice_symm_buffer_for_mega_moe(
         build_symm_buffer_layout(
             num_ranks, num_experts, num_max_tokens_per_rank, num_topk,
             hidden, intermediate_hidden, mma_type, activation, num_shared_experts));
-}
-
-static SymmBufferSlice slice_symm_buffer_for_mega_moe(
-    const torch::Tensor& buffer,
-    const int& num_ranks, const int& num_experts,
-    const int& num_max_tokens_per_rank, const int& num_topk,
-    const int& hidden, const int& intermediate_hidden,
-    const std::string& mma_type, const std::string& activation,
-    const int& num_ring_tokens) {
-    const auto layout_info = build_symm_buffer_layout(
-        num_ranks, num_experts, num_max_tokens_per_rank, num_topk,
-        hidden, intermediate_hidden, mma_type, activation, num_ring_tokens);
-    return slice_symm_buffer_from_layout(buffer, layout_info);
 }
 
 static void fp8_fp4_mega_moe(
