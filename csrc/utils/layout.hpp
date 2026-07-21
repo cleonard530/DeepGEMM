@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cute/arch/mma_sm100_umma.hpp>
-#include "torch_compat.hpp"
+#include <torch/all.h>
 
 #include "math.hpp"
 #include "exception.hpp"
