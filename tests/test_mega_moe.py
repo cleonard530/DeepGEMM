@@ -183,17 +183,17 @@ def test(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         copy_inputs_to_buffer()
 
         y = torch.empty((num_tokens, hidden), dtype=torch.bfloat16, device='cuda')
-        weights_suffix = '' if is_bf16xbf16 else '_tuple'
         kernel_kwargs = dict(
-            y=y, sym_buffer=buffer,
+            y=y, l1_weights=transformed_l1_weights, l2_weights=transformed_l2_weights,
+            sym_buffer=buffer,
             cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats_fused,
-            activation_clamp_opt=args.activation_clamp,
+            activation_clamp=args.activation_clamp,
             fast_math=bool(args.fast_math))
-        kernel_kwargs[f'l1_weights{weights_suffix}'] = transformed_l1_weights
-        kernel_kwargs[f'l2_weights{weights_suffix}'] = transformed_l2_weights
         if num_shared_experts > 0:
-            kernel_kwargs[f'shared_l1_weights{weights_suffix}_opt'] = transformed_shared_l1_weights
-            kernel_kwargs[f'shared_l2_weights{weights_suffix}_opt'] = transformed_shared_l2_weights
+            kernel_kwargs.update(
+                shared_l1_weights=transformed_shared_l1_weights,
+                shared_l2_weights=transformed_shared_l2_weights
+            )
         (deep_gemm.bf16_mega_moe if is_bf16xbf16 else deep_gemm.fp8_fp4_mega_moe)(**kernel_kwargs)
         return y, cumulative_local_expert_recv_stats_fused
 
