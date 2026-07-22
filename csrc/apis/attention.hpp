@@ -514,7 +514,7 @@ static torch::Tensor get_paged_mqa_logits_metadata(
 
 static torch::Tensor fp8_fp4_paged_mqa_logits(
     const torch::Tensor& q, const c10::optional<torch::Tensor>& q_sf,
-    const torch::Tensor& fused_kv_cache,
+    const torch::Tensor& kv_cache,
     const torch::Tensor& weights,
     const torch::Tensor& context_lens,
     const torch::Tensor& block_table,
@@ -525,7 +525,7 @@ static torch::Tensor fp8_fp4_paged_mqa_logits(
     const c10::optional<torch::Tensor>& indices) {
     return attention::fp8_fp4_paged_mqa_logits(
         std::make_tuple(q, q_sf),
-        fused_kv_cache, weights, context_lens, block_table, schedule_meta,
+        kv_cache, weights, context_lens, block_table, schedule_meta,
         static_cast<int>(max_context_len), clean_logits,
         logits_dtype, indices);
 }
@@ -546,7 +546,7 @@ static torch::Tensor fp8_mqa_logits(
 
 static torch::Tensor fp8_paged_mqa_logits(
     const torch::Tensor& q,
-    const torch::Tensor& fused_kv_cache,
+    const torch::Tensor& kv_cache,
     const torch::Tensor& weights,
     const torch::Tensor& context_lens,
     const torch::Tensor& block_table,
@@ -555,7 +555,7 @@ static torch::Tensor fp8_paged_mqa_logits(
     const bool& clean_logits,
     const c10::optional<torch::Tensor>& indices) {
     return attention::fp8_paged_mqa_logits(
-        q, fused_kv_cache, weights,
+        q, kv_cache, weights,
         context_lens, block_table, schedule_meta,
         static_cast<int>(max_context_len), clean_logits, indices);
 }
@@ -572,11 +572,11 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
     m.def(
         "get_paged_mqa_logits_metadata(Tensor context_lens, int block_kv, int num_sms, Tensor? indices=None) -> Tensor");
     m.def(
-        "fp8_fp4_paged_mqa_logits(Tensor q, Tensor? q_sf, Tensor fused_kv_cache, Tensor weights, Tensor context_lens, Tensor block_table, Tensor schedule_meta, int max_context_len, bool clean_logits=False, ScalarType logits_dtype=float, Tensor? indices=None) -> Tensor");
+        "fp8_fp4_paged_mqa_logits(Tensor q, Tensor? q_sf, Tensor kv_cache, Tensor weights, Tensor context_lens, Tensor block_table, Tensor schedule_meta, int max_context_len, bool clean_logits=False, ScalarType logits_dtype=float, Tensor? indices=None) -> Tensor");
     m.def(
         "fp8_mqa_logits(Tensor q, Tensor kv, Tensor kv_sf, Tensor weights, Tensor cu_seq_len_k_start, Tensor cu_seq_len_k_end, bool clean_logits=True, int max_seqlen_k=0) -> Tensor");
     m.def(
-        "fp8_paged_mqa_logits(Tensor q, Tensor fused_kv_cache, Tensor weights, Tensor context_lens, Tensor block_table, Tensor schedule_meta, int max_context_len, bool clean_logits=False, Tensor? indices=None) -> Tensor");
+        "fp8_paged_mqa_logits(Tensor q, Tensor kv_cache, Tensor weights, Tensor context_lens, Tensor block_table, Tensor schedule_meta, int max_context_len, bool clean_logits=False, Tensor? indices=None) -> Tensor");
 #endif
 }
 
