@@ -523,7 +523,7 @@ def test_paged_mqa_logits():
         num_kv_multicast = 2 if get_arch_major() == 9 and next_n == 4 else 1
         num_clusters = deep_gemm.get_num_sms() // num_kv_multicast
         kernel_kwargs = dict(
-            q=q_in, kv_cache=kv_in, weights=kernel_weights,
+            q=q_in, fused_kv_cache=kv_in, weights=kernel_weights,
             context_lens=context_lens_nextn, block_table=block_table,
             schedule_meta=deep_gemm.get_paged_mqa_logits_metadata(context_lens_nextn, block_kv, num_clusters, indices=indices),
             max_context_len=max_model_len, clean_logits=clean_logits, logits_dtype=logits_dtype,
