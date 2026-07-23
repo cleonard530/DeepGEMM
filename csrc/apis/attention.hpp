@@ -6,12 +6,17 @@
 #include "../jit_kernels/impls/sm90_fp8_gemm_1d1d.hpp"
 #include "../jit_kernels/impls/sm90_fp8_gemm_1d2d.hpp"
 #include "../jit_kernels/impls/sm100_fp8_fp4_gemm_1d1d.hpp"
+#include "../jit_kernels/impls/sm120_fp8_fp4_gemm_1d1d.hpp"
 #include "../jit_kernels/impls/sm100_mqa_logits.hpp"
+#include "../jit_kernels/impls/sm100_mqa_logits_f16_weights.hpp"
 #include "../jit_kernels/impls/sm90_fp8_mqa_logits.hpp"
+#include "../jit_kernels/impls/sm120_mqa_logits.hpp"
 #include "../jit_kernels/impls/smxx_clean_logits.hpp"
 #endif
 
 #include "layout.hpp"
+#include <torch/library.h>
+#include "../torch_library_utils.hpp"
 
 namespace deep_gemm::attention {
 
@@ -68,6 +73,9 @@ static void fp8_gemm_nt_skip_head_mid(const std::pair<torch::Tensor, torch::Tens
         // NOTES: Only granularity 128 and FP8 are exposed in the API
         sm100_fp8_fp4_gemm_1d1d(a.first, sfa, b.first, sfb, std::nullopt, d, m, n, k,
                                 128, 128, major_a, major_b, compiled_dims, epilogue_type);
+    } else if (arch_major == 12 and sfa.scalar_type() == torch::kInt) {
+        sm120_fp8_fp4_gemm_1d1d(a.first, sfa, b.first, sfb, std::nullopt, d, m, n, k,
+                                128, 128, major_a, major_b, compiled_dims, epilogue_type);
     } else {
         DG_HOST_UNREACHABLE("Unsupported architecture or scaling factor types");
     }
@@ -98,7 +106,7 @@ static torch::Tensor fp8_fp4_mqa_logits(const std::tuple<torch::Tensor, std::opt
 
     // Check SF Q
     if (is_mx_sf) {
-        DG_HOST_ASSERT(arch_major == 10);
+        DG_HOST_ASSERT(arch_major == 10 or (arch_major == 12 and is_fp4));
         DG_HOST_ASSERT(q_sf.has_value());
         auto [_seq_len, _num_heads] = get_shape<2>(q_sf.value());
         DG_HOST_ASSERT(seq_len == _seq_len and num_heads == _num_heads);
@@ -123,8 +131,18 @@ static torch::Tensor fp8_fp4_mqa_logits(const std::tuple<torch::Tensor, std::opt
     auto [_seq_len, _num_heads] = get_shape<2>(weights);
     DG_HOST_ASSERT(seq_len == _seq_len and num_heads == _num_heads);
     DG_HOST_ASSERT(weights.stride(1) == 1);
-    DG_HOST_ASSERT(weights.scalar_type() == torch::kFloat or (arch_major == 10 and weights.scalar_type() == torch::kBFloat16));
-    DG_HOST_ASSERT(weights.scalar_type() != torch::kBFloat16 or logits_dtype == torch::kBFloat16);
+    // The `weights` dtype explicitly selects the MQA-logits accumulation precision:
+    //   - FP16 selects nv_dev's SM100 two-CTA FP16-accumulator kernel.
+    //   - BF16 selects #377's SM100 unified BF16 reduction.
+    //   - FP32 is supported by every architecture.
+    const auto weights_dtype = weights.scalar_type();
+    const bool weights_is_f16 = weights_dtype == torch::kFloat16;
+    const bool weights_is_bf16 = weights_dtype == torch::kBFloat16;
+    DG_HOST_ASSERT(weights_dtype == torch::kFloat or
+                   (arch_major == 10 and (weights_is_f16 or weights_is_bf16)));
+    DG_HOST_ASSERT(not weights_is_bf16 or logits_dtype == torch::kBFloat16);
+    DG_HOST_ASSERT(not weights_is_f16 or
+                   (not is_mx_sf and qk_dtype == torch::kFloat8_e4m3fn));
 
     // Check cu_seq_len_k_start
     DG_HOST_ASSERT(cu_seq_len_k_start.size(0) == seq_len);
@@ -138,12 +156,19 @@ static torch::Tensor fp8_fp4_mqa_logits(const std::tuple<torch::Tensor, std::opt
 
     // Allocate output
     constexpr int block_qh = 128;
-    constexpr int block_kv = 256;
+    const int block_kv = (device_runtime->get_arch_major() == 12) ? 128 : 256;
     const int block_q = block_qh / num_heads;
     DG_HOST_ASSERT(block_qh % num_heads == 0);
 
     torch::Tensor logits;
     int aligned_seq_len = align(seq_len, block_q), stride_logits;
+    if (weights_is_f16) {
+        // FP16 weights select the SM100 2-CTA FP16 kernel, which tiles the query dimension
+        // in `block_q * 2` chunks (no per-row bound check), so the output is padded accordingly
+        DG_HOST_ASSERT(arch_major == 10 and "FP16 weights MQA logits requires SM100 (arch 10)");
+        DG_HOST_ASSERT(seq_len % 4 == 0 and "FP16 weights MQA logits requires seq_len % 4 == 0");
+        aligned_seq_len = align(seq_len, block_q * 2);
+    }
     // Logits row stride must be 1024-byte aligned
     const int stride_logits_alignment = 1024 / static_cast<int>(c10::elementSize(logits_dtype));
     if (max_seqlen_k == 0) {
@@ -158,7 +183,13 @@ static torch::Tensor fp8_fp4_mqa_logits(const std::tuple<torch::Tensor, std::opt
     }
 
     // Dispatch implementation
-    if (arch_major == 10) {
+    if (weights_is_f16) {
+        // FP16 weights -> FP16 MMA accumulator (Q*K score + per-head reduction in FP16); see note above
+        sm100_mqa_logits_f16_weights(
+            q_fp, kv_fp, kv_sf, weights, cu_seq_len_k_start, cu_seq_len_k_end,
+            logits, logits_dtype, seq_len, seq_len_kv, max_seqlen_k,
+            stride_logits, num_heads, head_dim, block_q, block_kv);
+    } else if (arch_major == 10) {
         DG_HOST_ASSERT(qk_dtype == torch::kFloat8_e4m3fn or qk_dtype == kPackedFP4);
         DG_HOST_ASSERT(num_heads == 8 or num_heads == 16 or num_heads == 32 or num_heads == 64);
         sm100_mqa_logits(q_fp, q_sf, kv_fp, kv_sf, weights, cu_seq_len_k_start, cu_seq_len_k_end, logits, logits_dtype,
@@ -171,6 +202,15 @@ static torch::Tensor fp8_fp4_mqa_logits(const std::tuple<torch::Tensor, std::opt
         DG_HOST_ASSERT(weights.scalar_type() == torch::kFloat);
         sm90_fp8_mqa_logits(q_fp, kv_fp, kv_sf, weights, cu_seq_len_k_start, cu_seq_len_k_end, logits, logits_dtype,
                             seq_len, seq_len_kv, max_seqlen_k, stride_logits, num_heads, head_dim, block_q, block_kv);
+    } else if (arch_major == 12) {
+        DG_HOST_ASSERT(qk_dtype == torch::kFloat8_e4m3fn or qk_dtype == kPackedFP4);
+        DG_HOST_ASSERT(num_heads == 16 or num_heads == 32 or num_heads == 64);
+        DG_HOST_ASSERT(weights_dtype == torch::kFloat);
+        sm120_mqa_logits(
+            q_fp, q_sf, kv_fp, kv_sf, weights,
+            cu_seq_len_k_start, cu_seq_len_k_end, logits, logits_dtype,
+            seq_len, seq_len_kv, max_seqlen_k, stride_logits,
+            num_heads, head_dim, block_q, block_kv, is_mx_sf, qk_dtype);
     } else {
         DG_HOST_UNREACHABLE("Unsupported architecture");
     }
@@ -191,24 +231,43 @@ static torch::Tensor get_paged_mqa_logits_metadata(const torch::Tensor& context_
     DG_HOST_ASSERT(context_lens.scalar_type() == torch::kInt);
     DG_HOST_ASSERT(context_lens.is_contiguous());
 
-    // Create metadata tensor
+    // Create metadata tensor. `num_sms` here is actually the scheduler slot count
+    // (= num_clusters on SM90 next_n=4 multicast, = num_sms elsewhere); callers
+    // pre-divide.
     auto schedule_metadata = torch::empty({num_sms + 1, 2}, context_lens.options());
 
     // Dispatch implementation
     const auto arch_major = device_runtime->get_arch_major();
+    const int* indices_ptr = nullptr;
     if (is_varlen) {
         const auto& indices_tensor = indices.value();
-        DG_HOST_ASSERT(arch_major == 10 and next_n == 1 and (block_kv == 32 or block_kv == 64 or block_kv == 128));
+        DG_HOST_ASSERT((arch_major == 10 or arch_major == 12) and next_n == 1);
         DG_HOST_ASSERT(indices_tensor.dim() == 1 and indices_tensor.size(0) == batch_size);
         DG_HOST_ASSERT(indices_tensor.is_contiguous());
         DG_HOST_ASSERT(indices_tensor.scalar_type() == torch::kInt);
-        sm100_paged_mqa_logits_metadata(context_lens, schedule_metadata, batch_size, batch_size * next_n, next_n, num_sms, is_context_lens_2d, true, indices_tensor.data_ptr<int>());
-    } else if (arch_major == 10) {
+        indices_ptr = indices_tensor.data_ptr<int>();
+    }
+
+    if (arch_major == 10) {
         DG_HOST_ASSERT(block_kv == 32 or block_kv == 64 or block_kv == 128);
-        sm100_paged_mqa_logits_metadata(context_lens, schedule_metadata, batch_size, batch_size * next_n, next_n, num_sms, is_context_lens_2d, false, nullptr);
+        sm100_paged_mqa_logits_metadata(
+            context_lens, schedule_metadata, batch_size, batch_size * next_n,
+            next_n, num_sms, is_context_lens_2d, is_varlen, indices_ptr);
     } else if (arch_major == 9) {
-        DG_HOST_ASSERT(block_kv == 64);
-        sm90_paged_mqa_logits_metadata(context_lens, schedule_metadata, batch_size, next_n, block_kv, num_sms, is_context_lens_2d, false, nullptr);
+        DG_HOST_ASSERT(not is_varlen and (block_kv == 32 or block_kv == 64));
+        // Metadata schedules 64-row compute tiles even when pages contain 32 rows.
+        sm90_paged_mqa_logits_metadata(
+            context_lens, schedule_metadata, batch_size, next_n,
+            /*block_kv=*/64, num_sms, is_context_lens_2d,
+            /*num_next_n_atoms=*/1, /*is_varlen=*/false, /*indices=*/nullptr);
+    } else if (arch_major == 12) {
+        DG_HOST_ASSERT(block_kv == 32 or block_kv == 64);
+        const int next_n_atom = (is_varlen or next_n >= 2) ? 2 : 1;
+        const int num_next_n_atoms = (next_n + next_n_atom - 1) / next_n_atom;
+        sm120_paged_mqa_logits_metadata(
+            context_lens, schedule_metadata, batch_size, next_n, block_kv,
+            num_sms, is_context_lens_2d, num_next_n_atoms,
+            is_varlen, indices_ptr);
     } else {
         DG_HOST_UNREACHABLE("Unsupported architecture");
     }
@@ -249,7 +308,7 @@ static torch::Tensor fp8_fp4_paged_mqa_logits(const std::tuple<torch::Tensor, st
 
     // Check SF Q
     if (is_mx_sf) {
-        DG_HOST_ASSERT(arch_major == 10);
+        DG_HOST_ASSERT(arch_major == 10 or (arch_major == 12 and is_fp4));
         DG_HOST_ASSERT(q_sf.has_value());
         auto [_batch_size, _next_n, _num_heads] = get_shape<3>(q_sf.value());
         DG_HOST_ASSERT(batch_size == _batch_size and next_n == _next_n and num_heads == _num_heads);
@@ -260,8 +319,11 @@ static torch::Tensor fp8_fp4_paged_mqa_logits(const std::tuple<torch::Tensor, st
     // Check fused KV cache
     int num_heads_kv, head_dim_with_sf;
     std::tie(num_kv_blocks, block_kv, num_heads_kv, head_dim_with_sf) = get_shape<4>(fused_kv_cache);
-    DG_HOST_ASSERT((arch_major == 10 and (block_kv == 32 or block_kv == 64 or block_kv == 128)) or
-                   (arch_major == 9 and block_kv == 64));
+    DG_HOST_ASSERT(
+        (arch_major == 10 and (block_kv == 32 or block_kv == 64 or block_kv == 128)) or
+        (arch_major == 9 and (block_kv == 32 or block_kv == 64)) or
+        (arch_major == 12 and ((is_fp4 and (block_kv == 32 or block_kv == 64)) or
+                               (not is_fp4 and block_kv == 64))));
     const int kv_head_dim = is_fp4 ? head_dim / 2 : head_dim;
     const int sf_bytes = static_cast<int>(is_mx_sf ? sizeof(int) : sizeof(float));
     DG_HOST_ASSERT(num_heads_kv == 1 and head_dim_with_sf == kv_head_dim + sf_bytes);
@@ -301,15 +363,17 @@ static torch::Tensor fp8_fp4_paged_mqa_logits(const std::tuple<torch::Tensor, st
     const bool is_varlen = indices.has_value();
     const auto indices_tensor = indices.value_or(torch::Tensor());
     if (is_varlen) {
-        DG_HOST_ASSERT(arch_major == 10 and next_n == 1);
+        DG_HOST_ASSERT((arch_major == 10 or arch_major == 12) and next_n == 1);
         DG_HOST_ASSERT(indices_tensor.dim() == 1 and indices_tensor.size(0) == batch_size);
         DG_HOST_ASSERT(indices_tensor.is_contiguous());
         DG_HOST_ASSERT(indices_tensor.scalar_type() == torch::kInt);
     }
 
-    // Check schedule metadata
+    // Check schedule metadata. SM90 next_n=4 uses a 2-CTA cluster per task, so
+    // schedule_meta carries one entry per cluster instead of per SM.
     auto [_schedule_meta_size, _meta_info_size] = get_shape<2>(schedule_meta);
-    DG_HOST_ASSERT(_schedule_meta_size == num_sms + 1 and _meta_info_size == 2);
+    const int num_kv_multicast = (arch_major == 9 and next_n == 4) ? 2 : 1;
+    DG_HOST_ASSERT(_schedule_meta_size == num_sms / num_kv_multicast + 1 and _meta_info_size == 2);
     DG_HOST_ASSERT(schedule_meta.is_contiguous());
     DG_HOST_ASSERT(schedule_meta.scalar_type() == torch::kInt);
 
@@ -323,8 +387,9 @@ static torch::Tensor fp8_fp4_paged_mqa_logits(const std::tuple<torch::Tensor, st
     DG_HOST_ASSERT(context_lens.scalar_type() == torch::kInt);
 
     // Allocate output
+    // SM120a: 2 groups × 64 KV rows = 128; SM90/100: 256
+    const int split_kv = (arch_major == 12) ? 128 : 256;
     DG_HOST_ASSERT(logits_dtype == torch::kFloat32 or logits_dtype == torch::kBFloat16);
-    constexpr int split_kv = 256;
     // Logits row stride must be 1024-byte aligned
     const int stride_logits_alignment = 1024 / static_cast<int>(c10::elementSize(logits_dtype));
     const auto aligned_max_context_len = align(align(max_context_len, split_kv), stride_logits_alignment);
@@ -348,6 +413,17 @@ static torch::Tensor fp8_fp4_paged_mqa_logits(const std::tuple<torch::Tensor, st
         sm90_fp8_paged_mqa_logits(q_fp, kv_cache, kv_cache_sf, weights, context_lens, logits, block_table, indices_tensor, schedule_meta,
                                   logits_dtype, batch_size, next_n, num_heads, head_dim, num_kv_blocks, block_kv, is_context_lens_2d,
                                   is_varlen, aligned_max_context_len, block_table_stride, num_sms, split_kv);
+    } else if (arch_major == 12) {
+        DG_HOST_ASSERT(qk_dtype == torch::kFloat8_e4m3fn or qk_dtype == kPackedFP4);
+        DG_HOST_ASSERT(num_heads == 16 or num_heads == 32 or num_heads == 64);
+        DG_HOST_ASSERT(weights.scalar_type() == torch::kFloat);
+        sm120_paged_mqa_logits(
+            q_fp, q_sf, kv_cache, kv_cache_sf, weights, context_lens,
+            logits, block_table, indices_tensor, schedule_meta, logits_dtype,
+            batch_size, batch_size * next_n, next_n, num_heads, head_dim,
+            num_kv_blocks, block_kv, is_context_lens_2d, is_varlen,
+            aligned_max_context_len, block_table_stride, num_sms, split_kv,
+            is_mx_sf, qk_dtype);
     } else {
         DG_HOST_UNREACHABLE("Unsupported architecture");
     }
@@ -389,41 +465,130 @@ static torch::Tensor fp8_paged_mqa_logits(const torch::Tensor& q,
 }
 #endif
 
-static void register_apis(pybind11::module_& m) {
+}  // namespace deep_gemm::attention
+
+namespace deep_gemm::torch_registration {
+
+using namespace deep_gemm::torch_utils;
+
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
-    m.def("fp8_gemm_nt_skip_head_mid", &fp8_gemm_nt_skip_head_mid,
-          py::arg("a"), py::arg("b"), py::arg("d"), py::arg("head_splits"),
-          py::arg("recipe") = std::nullopt,
-          py::arg("compiled_dims") = "nk",
-          py::arg("disable_ue8m0_cast") = false);
-    m.def("fp8_fp4_mqa_logits", &fp8_fp4_mqa_logits,
-          py::arg("q"), py::arg("kv"), py::arg("weights"),
-          py::arg("cu_seq_len_k_start"), py::arg("cu_seq_len_k_end"),
-          py::arg("clean_logits") = true,
-          py::arg("max_seqlen_k") = 0,
-          py::arg("logits_dtype") = torch::kFloat32);
-    m.def("get_paged_mqa_logits_metadata", &get_paged_mqa_logits_metadata,
-          py::arg("context_lens"), py::arg("block_kv"), py::arg("num_sms"),
-          py::arg("indices") = std::nullopt);
-    m.def("fp8_fp4_paged_mqa_logits", &fp8_fp4_paged_mqa_logits,
-          py::arg("q"), py::arg("kv_cache"), py::arg("weights"),
-          py::arg("context_lens"), py::arg("block_table"), py::arg("schedule_meta"),
-          py::arg("max_context_len"),
-          py::arg("clean_logits") = false,
-          py::arg("logits_dtype") = torch::kFloat32,
-          py::arg("indices") = std::nullopt);
-    // Legacy API
-    m.def("fp8_mqa_logits", &fp8_mqa_logits,
-          py::arg("q"), py::arg("kv"), py::arg("weights"),
-          py::arg("cu_seq_len_k_start"), py::arg("cu_seq_len_k_end"),
-          py::arg("clean_logits") = true,
-          py::arg("max_seqlen_k") = 0);
-    m.def("fp8_paged_mqa_logits", &fp8_paged_mqa_logits,
-          py::arg("q"), py::arg("kv_cache"), py::arg("weights"),
-          py::arg("context_lens"), py::arg("block_table"), py::arg("schedule_meta"),
-          py::arg("max_context_len"), py::arg("clean_logits") = false,
-          py::arg("indices") = std::nullopt);
+static void fp8_gemm_nt_skip_head_mid(
+    const torch::Tensor& a, const torch::Tensor& sfa,
+    const torch::Tensor& b, const torch::Tensor& sfb,
+    const torch::Tensor& d,
+    const c10::List<int64_t>& head_splits,
+    const c10::optional<c10::List<int64_t>>& recipe,
+    const std::string& compiled_dims,
+    const bool& disable_ue8m0_cast) {
+    attention::fp8_gemm_nt_skip_head_mid(
+        {a, sfa}, {b, sfb}, d,
+        list_to_tuple3(head_splits),
+        list_to_recipe3(recipe),
+        compiled_dims, disable_ue8m0_cast);
+}
+
+static torch::Tensor fp8_fp4_mqa_logits(
+    const torch::Tensor& q, const c10::optional<torch::Tensor>& q_sf,
+    const torch::Tensor& kv, const torch::Tensor& kv_sf,
+    const torch::Tensor& weights,
+    const torch::Tensor& cu_seq_len_k_start,
+    const torch::Tensor& cu_seq_len_k_end,
+    const bool& clean_logits,
+    const int64_t& max_seqlen_k,
+    at::ScalarType logits_dtype) {
+    return attention::fp8_fp4_mqa_logits(
+        std::make_tuple(q, q_sf),
+        std::make_tuple(kv, kv_sf),
+        weights, cu_seq_len_k_start, cu_seq_len_k_end,
+        clean_logits, static_cast<int>(max_seqlen_k),
+        logits_dtype);
+}
+
+static torch::Tensor get_paged_mqa_logits_metadata(
+    const torch::Tensor& context_lens, const int64_t& block_kv,
+    const int64_t& num_sms, const c10::optional<torch::Tensor>& indices) {
+    return attention::get_paged_mqa_logits_metadata(
+        context_lens, static_cast<int>(block_kv),
+        static_cast<int>(num_sms), indices);
+}
+
+static torch::Tensor fp8_fp4_paged_mqa_logits(
+    const torch::Tensor& q, const c10::optional<torch::Tensor>& q_sf,
+    const torch::Tensor& kv_cache,
+    const torch::Tensor& weights,
+    const torch::Tensor& context_lens,
+    const torch::Tensor& block_table,
+    const torch::Tensor& schedule_meta,
+    const int64_t& max_context_len,
+    const bool& clean_logits,
+    at::ScalarType logits_dtype,
+    const c10::optional<torch::Tensor>& indices) {
+    return attention::fp8_fp4_paged_mqa_logits(
+        std::make_tuple(q, q_sf),
+        kv_cache, weights, context_lens, block_table, schedule_meta,
+        static_cast<int>(max_context_len), clean_logits,
+        logits_dtype, indices);
+}
+
+static torch::Tensor fp8_mqa_logits(
+    const torch::Tensor& q,
+    const torch::Tensor& kv, const torch::Tensor& kv_sf,
+    const torch::Tensor& weights,
+    const torch::Tensor& cu_seq_len_k_start,
+    const torch::Tensor& cu_seq_len_k_end,
+    const bool& clean_logits,
+    const int64_t& max_seqlen_k) {
+    return attention::fp8_mqa_logits(
+        q, std::make_tuple(kv, kv_sf), weights,
+        cu_seq_len_k_start, cu_seq_len_k_end,
+        clean_logits, static_cast<int>(max_seqlen_k));
+}
+
+static torch::Tensor fp8_paged_mqa_logits(
+    const torch::Tensor& q,
+    const torch::Tensor& kv_cache,
+    const torch::Tensor& weights,
+    const torch::Tensor& context_lens,
+    const torch::Tensor& block_table,
+    const torch::Tensor& schedule_meta,
+    const int64_t& max_context_len,
+    const bool& clean_logits,
+    const c10::optional<torch::Tensor>& indices) {
+    return attention::fp8_paged_mqa_logits(
+        q, kv_cache, weights,
+        context_lens, block_table, schedule_meta,
+        static_cast<int>(max_context_len), clean_logits, indices);
+}
+#endif
+
+}  // namespace deep_gemm::torch_registration
+
+TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
+#if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
+    m.def(
+        "fp8_gemm_nt_skip_head_mid(Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, int[] head_splits, int[]? recipe=None, str compiled_dims='nk', bool disable_ue8m0_cast=False) -> ()");
+    m.def(
+        "fp8_fp4_mqa_logits(Tensor q, Tensor? q_sf, Tensor kv, Tensor kv_sf, Tensor weights, Tensor cu_seq_len_k_start, Tensor cu_seq_len_k_end, bool clean_logits=True, int max_seqlen_k=0, ScalarType logits_dtype=float) -> Tensor");
+    m.def(
+        "get_paged_mqa_logits_metadata(Tensor context_lens, int block_kv, int num_sms, Tensor? indices=None) -> Tensor");
+    m.def(
+        "fp8_fp4_paged_mqa_logits(Tensor q, Tensor? q_sf, Tensor kv_cache, Tensor weights, Tensor context_lens, Tensor block_table, Tensor schedule_meta, int max_context_len, bool clean_logits=False, ScalarType logits_dtype=float, Tensor? indices=None) -> Tensor");
+    m.def(
+        "fp8_mqa_logits(Tensor q, Tensor kv, Tensor kv_sf, Tensor weights, Tensor cu_seq_len_k_start, Tensor cu_seq_len_k_end, bool clean_logits=True, int max_seqlen_k=0) -> Tensor");
+    m.def(
+        "fp8_paged_mqa_logits(Tensor q, Tensor kv_cache, Tensor weights, Tensor context_lens, Tensor block_table, Tensor schedule_meta, int max_context_len, bool clean_logits=False, Tensor? indices=None) -> Tensor");
 #endif
 }
 
-} // namespace deep_gemm::attention
+TORCH_LIBRARY_IMPL(deep_gemm, CUDA, m) {
+    using namespace deep_gemm::torch_registration;
+
+#if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
+    m.impl("fp8_gemm_nt_skip_head_mid", TORCH_FN(fp8_gemm_nt_skip_head_mid));
+    m.impl("fp8_fp4_mqa_logits", TORCH_FN(fp8_fp4_mqa_logits));
+    m.impl("get_paged_mqa_logits_metadata", TORCH_FN(get_paged_mqa_logits_metadata));
+    m.impl("fp8_fp4_paged_mqa_logits", TORCH_FN(fp8_fp4_paged_mqa_logits));
+    m.impl("fp8_mqa_logits", TORCH_FN(fp8_mqa_logits));
+    m.impl("fp8_paged_mqa_logits", TORCH_FN(fp8_paged_mqa_logits));
+#endif
+}

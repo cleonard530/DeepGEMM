@@ -1,7 +1,6 @@
 #pragma once
 
-#include <pybind11/pybind11.h>
-#include <torch/python.h>
+#include <torch/all.h>
 
 #include "../utils/exception.hpp"
 #include "../utils/format.hpp"
@@ -12,10 +11,15 @@
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
 #include "../jit_kernels/impls/sm90_bmk_bnk_mn.hpp"
 #include "../jit_kernels/impls/sm100_bmk_bnk_mn.hpp"
+#include "../jit_kernels/impls/sm120_bmk_bnk_mn.hpp"
 #include "../jit_kernels/impls/sm90_bf16_gemm.hpp"
 #include "../jit_kernels/impls/sm100_bf16_gemm.hpp"
+#include "../jit_kernels/impls/sm120_bf16_gemm.hpp"
+#include "../jit_kernels/impls/sm120_fp8_fp4_gemm_1d1d.hpp"
 #include "../jit_kernels/impls/smxx_cublaslt.hpp"
 #endif
+#include <torch/library.h>
+#include "../torch_library_utils.hpp"
 
 namespace deep_gemm::einsum {
 
@@ -51,6 +55,8 @@ static void bmk_bnk_mn(const torch::Tensor& a, const torch::Tensor& b, const tor
     const auto arch_major = device_runtime->get_arch_major();
     if (arch_major == 9) {
         sm90_bmn_bnk_mn_gemm(a, b, d, s, m, n, k);
+    } else if (arch_major == 12) {
+        sm120_bmn_bnk_mn_gemm(a, b, d, s, m, n, k);
     } else if (arch_major == 10) {
         sm100_bmn_bnk_mn_gemm(a, b, d, s, m, n, k);
     } else {
@@ -74,6 +80,8 @@ static void bhr_hdr_bhd(const torch::Tensor& A, const torch::Tensor& B, const to
         cublaslt_bhr_hdr_bhd(A, B, D, b, h, r, d);
     } else if (arch_major == 9) {
         sm90_bf16_bhr_hdr_bhd(A, B, D, b, h, r, d);
+    } else if (arch_major == 12) {
+        sm120_bf16_bhr_hdr_bhd(A, B, D, b, h, r, d);
     } else if (arch_major == 10) {
         sm100_bf16_bhr_hdr_bhd(A, B, D, b, h, r, d);
     } else {
@@ -97,6 +105,8 @@ static void bhd_hdr_bhr(const torch::Tensor& A, const torch::Tensor& B, const to
         cublaslt_bhd_hdr_bhr(A, B, D, b, h, r, d);
     } else if (arch_major == 9) {
         sm90_bf16_bhd_hdr_bhr(A, B, D, b, h, r, d);
+    } else if (arch_major == 12) {
+        sm120_bf16_bhd_hdr_bhr(A, B, D, b, h, r, d);
     } else if (arch_major == 10) {
         sm100_bf16_bhd_hdr_bhr(A, B, D, b, h, r, d);
     } else {
@@ -161,13 +171,49 @@ static void fp8_bmm(const torch::Tensor& a, const torch::Tensor& sfa,
     if (batch_size == 0 or gemm::early_return(m, n, k, d, c))
         return;
 
-    // Transform scaling factors
+    // AB-swap for small-M decode: BLOCK_M >= 64 wastes lanes at M <= 32, so swap A<->B to
+    // put the small dim on N (BLOCK_N 16/32). Done before the SF transform; the kernel
+    // writes back to the caller's buffer via runtime stride_cd_m/n (see sm120_fp8_fp4_bmm).
+    // Excluded when accumulating (c): swapped strides break the batched epilogue.
+    const auto arch_major = device_runtime->get_arch_major();
+    constexpr int kSwapAbMMax = 32;
+    const bool swap_ab_eligible =
+        arch_major == 12 and m >= 1 and m <= kSwapAbMMax
+        and major_a == cute::UMMA::Major::K and major_b == cute::UMMA::Major::K
+        and d.stride(-1) == 1
+        and not c.has_value();
+
+    if (swap_ab_eligible) {
+        // Swap per-tensor granularities to match the swapped operands; else asymmetric
+        // recipes like (1,128,128) trip the SF layout shape check.
+        const auto eff_recipe = recipe.has_value()
+            ? recipe.value()
+            : get_default_recipe(sfa.scalar_type(), sfb.scalar_type());
+        const auto& [ga, gb, gk] = eff_recipe;
+        std::optional<std::tuple<int, int, int>> swap_recipe = std::nullopt;
+        std::optional<std::tuple<int, int>> swap_recipe_a = std::make_tuple(gb, gk);
+        std::optional<std::tuple<int, int>> swap_recipe_b = std::make_tuple(ga, gk);
+        const auto [transformed_sfa_swap, transformed_sfb_swap, gran_k_a_swap, gran_k_b_swap]
+            = layout::transform_sf_pair_into_required_layout(
+                sfb, sfa, /*m=*/n, /*n=*/m, k, swap_recipe,
+                swap_recipe_a, swap_recipe_b, batch_size, batch_size, false);
+        sm120_fp8_fp4_bmm(
+            b, transformed_sfa_swap, a, transformed_sfb_swap, c, d,
+            batch_size, /*m=*/n, /*n=*/m, k,
+            gran_k_a_swap, gran_k_b_swap,
+            major_b, major_a, compiled_dims,
+            /*swap_ab=*/true);
+        return;
+    }
+
+    // Transform scaling factors (non-swap path)
     const auto [transformed_sfa, transformed_sfb, gran_k_a, gran_k_b] = layout::transform_sf_pair_into_required_layout(
         sfa, sfb, m, n, k, recipe, std::nullopt, std::nullopt, batch_size, batch_size, false);
 
     // Dispatch implementation
-    const auto arch_major = device_runtime->get_arch_major();
-    if (arch_major == 10) {
+    if (arch_major == 12) {
+        sm120_fp8_fp4_bmm(a, transformed_sfa, b, transformed_sfb, c, d, batch_size, m, n, k, gran_k_a, gran_k_b, major_a, major_b, compiled_dims);
+    } else if (arch_major == 10) {
         sm100_fp8_bmm(a, transformed_sfa, b, transformed_sfb, c, d, batch_size, m, n, k, gran_k_a, gran_k_b, major_a, major_b, compiled_dims);
     } else {
         const auto major_sfb = get_major_type_ab(sfb);
@@ -192,21 +238,30 @@ static void fp8_einsum(const std::string& expr,
         const auto perm_d = d.permute({1, 0, 2});
         const auto perm_c = c.has_value() ? std::make_optional(c.value().permute({1, 0, 2})) : std::nullopt;
         fp8_bmm(perm_a, perm_sfa, b.first, b.second, perm_d, perm_c, recipe, "nk");
-    } else if (expr == "bhd,hdr->bhr" and arch_major == 10) {
+    } else if (expr == "bhd,hdr->bhr") {
         // (batch_size, m, n, k): (h, b, r, d)
         const auto perm_a = a.first.permute({1, 0, 2});
         const auto perm_sfa = a.second.permute({1, 0, 2});
-        const auto perm_b = b.first.permute({0, 2, 1});
-        const auto perm_sfb = b.second.permute({0, 2, 1});
+        auto perm_b = b.first.permute({0, 2, 1});
+        auto perm_sfb = b.second.permute({0, 2, 1});
+        // SM120: B is MN-major after permute; .contiguous() to K-major (scalar MN-major path ~3x slower).
+        if (arch_major == 12) {
+            perm_b = perm_b.contiguous();
+        }
         const auto perm_d = d.permute({1, 0, 2});
         const auto perm_c = c.has_value() ? std::make_optional(c.value().permute({1, 0, 2})) : std::nullopt;
         fp8_bmm(perm_a, perm_sfa, perm_b, perm_sfb, perm_d, perm_c, recipe, "nk");
-    } else if (expr == "bhd,bhr->hdr" and arch_major == 10) {
+    } else if (expr == "bhd,bhr->hdr") {
         // (batch_size, m, n, k): (h, d, r, b)
-        const auto perm_a = a.first.permute({1, 2, 0});
-        const auto perm_sfa = a.second.permute({1, 2, 0});
-        const auto perm_b = b.first.permute({1, 2, 0});
-        const auto perm_sfb = b.second.permute({1, 2, 0});
+        auto perm_a = a.first.permute({1, 2, 0});
+        auto perm_sfa = a.second.permute({1, 2, 0});
+        auto perm_b = b.first.permute({1, 2, 0});
+        auto perm_sfb = b.second.permute({1, 2, 0});
+        // SM120: A/B MN-major after permute; force K-major (MN-major A unsupported, scalar path ~3x slower).
+        if (arch_major == 12) {
+            perm_a = perm_a.contiguous();
+            perm_b = perm_b.contiguous();
+        }
         fp8_bmm(perm_a, perm_sfa, perm_b, perm_sfb, d, c, recipe, "mn");
     } else {
         DG_HOST_UNREACHABLE(fmt::format("Unsupported einsum expression: {}", expr));
@@ -214,17 +269,45 @@ static void fp8_einsum(const std::string& expr,
 }
 #endif
 
-static void register_apis(pybind11::module_& m) {
+}  // namespace deep_gemm::einsum
+
+namespace deep_gemm::torch_registration {
+
+using namespace deep_gemm::torch_utils;
+
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
-    m.def("einsum", &einsum,
-          py::arg("expr"), py::arg("a"), py::arg("b"),
-          py::arg("d"), py::arg("c") = std::nullopt,
-          py::arg("use_cublaslt") = false);
-    m.def("fp8_einsum", &fp8_einsum,
-          py::arg("expr"), py::arg("a"), py::arg("b"),
-          py::arg("d"),  py::arg("c") = std::nullopt,
-          py::arg("recipe") = std::make_tuple(1, 128, 128));
+static void einsum(const std::string& expr,
+                   const torch::Tensor& a, const torch::Tensor& b,
+                   const torch::Tensor& d, const c10::optional<torch::Tensor>& c,
+                   const bool& use_cublaslt) {
+    einsum::einsum(expr, a, b, d, c, use_cublaslt);
+}
+
+static void fp8_einsum(const std::string& expr,
+                       const torch::Tensor& a, const torch::Tensor& sfa,
+                       const torch::Tensor& b, const torch::Tensor& sfb,
+                       const torch::Tensor& d, const c10::optional<torch::Tensor>& c,
+                       const c10::optional<c10::List<int64_t>>& recipe) {
+    einsum::fp8_einsum(expr, {a, sfa}, {b, sfb}, d, c, list_to_tuple3(recipe.value()));
+}
+#endif
+
+}  // namespace deep_gemm::torch_registration
+
+TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
+#if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
+    m.def(
+        "einsum(str expr, Tensor a, Tensor b, Tensor(d!) d, Tensor? c=None, bool use_cublaslt=False) -> ()");
+    m.def(
+        "fp8_einsum(str expr, Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, Tensor? c=None, int[]? recipe=None) -> ()");
 #endif
 }
 
-} // namespace deep_gemm::einsum
+TORCH_LIBRARY_IMPL(deep_gemm, CUDA, m) {
+    using namespace deep_gemm::torch_registration;
+
+#if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
+    m.impl("einsum", TORCH_FN(einsum));
+    m.impl("fp8_einsum", TORCH_FN(fp8_einsum));
+#endif
+}

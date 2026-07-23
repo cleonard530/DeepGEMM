@@ -59,7 +59,9 @@ class QuantConfig:
             recipe = (1, 1, 128) if is_wgrad else None
         else:
             recipe_a = (1, self.gran_k_a)
-            recipe_b = (1, self.gran_k_b) if self.is_fp4_b or is_wgrad else (self.gran_k_b, self.gran_k_b)
+            # Mixed configs (either operand FP4) are 1D-scaled on both sides: the FP8
+            # operand uses per-token (1, gran) scales, not per-block (gran, gran).
+            recipe_b = (1, self.gran_k_b) if self.is_fp4_b or self.is_fp4_a or is_wgrad else (self.gran_k_b, self.gran_k_b)
         return recipe, recipe_a, recipe_b
 
     def max_diff(self) -> float:
@@ -75,7 +77,13 @@ class QuantConfig:
             return [None]
         quant_config_list = [QuantConfig()]
         if get_arch_major() == 10:
+            # SM100: FP8_A x FP4_B via UMMA mixed precision
             quant_config_list.append(QuantConfig((128, 32, False, True)))
+        elif get_arch_major() == 12:
+            quant_config_list.append(QuantConfig((32, 32, True, True)))
+            quant_config_list.append(QuantConfig((128, 32, False, True)))
+            # SM120: FP4_A x FP8_B mixed (swapAB orientation, kAIsFP4)
+            quant_config_list.append(QuantConfig((32, 128, True, False)))
         return quant_config_list
 
 
@@ -158,6 +166,7 @@ def enumerate_m_grouped_contiguous(dtype: torch.dtype) -> Generator:
     quant_config_list = QuantConfig.get_list_from_dtype(dtype)
     m_group_list = [(4, 8192), (8, 4096)]
     n_k_list = [(6144, 7168), (7168, 3072), (4096, 4096), (4096, 2048)]
+    allow_b_mn = get_arch_major() != 9 or dtype != torch.float8_e4m3fn
     for kernel_type in get_kernel_types(dtype):
         for quant_config in quant_config_list:
             if len(quant_config_list) > 1:
@@ -167,7 +176,7 @@ def enumerate_m_grouped_contiguous(dtype: torch.dtype) -> Generator:
                     reset_seed()
                     for num_groups, expected_m_per_group in m_group_list:
                         for n, k in n_k_list:
-                            for major_a, major_b in get_major_ab(False, get_arch_major() != 9 or dtype != torch.float8_e4m3fn):
+                            for major_a, major_b in get_major_ab(False, allow_b_mn):
                                 yield kernel_type, quant_config, num_groups, expected_m_per_group, n, k, major_a, major_b, use_psum_layout, ensure_zero_padding
 
 
@@ -188,26 +197,43 @@ def enumerate_m_grouped_masked(dtype: torch.dtype) -> Generator:
 
 
 def enumerate_k_grouped_contiguous(dtype: torch.dtype):
+    arch = get_arch_major()
     if dtype == torch.bfloat16:
-        k_alignment_options = [(128, 128)] if get_arch_major() == 9 else [(32, 32), (128, 128), (192, 192)]
+        if arch == 9 or arch == 12:
+            k_alignment_options = [(128, 128)]
+        else:
+            k_alignment_options = [(32, 32), (128, 128), (192, 192)]
     else:
-        k_alignment_options = [(128, 128)] if get_arch_major() == 9 else [(32, 32), (32, 128), (32, 160), (32, 224), (128, 128), (128, 160), (128, 224)]
-    # Only K-major is supported for SM90 FP8
-    major_a, major_b = (MajorTypeAB.KMajor, MajorTypeAB.KMajor) if get_arch_major() == 9 and dtype == torch.float8_e4m3fn \
-                       else (MajorTypeAB.MNMajor, MajorTypeAB.MNMajor)
-    psum_list = (False, True) if get_arch_major() == 10 else (False, )
-    # Must with FP32 accumulation and 1D1D kernels
-    # NOTES: the first shape has many small groups, for stressing the SM90 in-place tensor map update
-    for num_groups, m, n, expected_k_per_group in (( 8,  768, 2048,  128),
-                                                   ( 4, 4096, 7168, 8192), ( 4, 7168, 2048, 8192),   # EP64
-                                                   ( 8, 4096, 7168, 4096), ( 8, 7168, 2048, 4096),   # EP32
-                                                   (16, 4096, 7168, 2048), (16, 7168, 2048, 2048)):  # EP16
-        real_ks_cpu = [max(1, int(expected_k_per_group * random.uniform(0.7, 1.3))) for _ in range(num_groups)]
-        for use_psum_layout in psum_list:
-            for gran_k, k_alignment in k_alignment_options:
-                set_mk_alignment_for_contiguous_layout(k_alignment)
-                aligned_ks_cpu = [align(k, k_alignment) for k in real_ks_cpu]
-                yield num_groups, m, n, major_a, major_b, real_ks_cpu, aligned_ks_cpu, expected_k_per_group, gran_k, k_alignment, use_psum_layout
+        if arch == 9:
+            k_alignment_options = [(128, 128)]
+        elif arch == 12:
+            k_alignment_options = [(32, 128), (128, 128)]
+        else:
+            k_alignment_options = [(32, 32), (32, 128), (32, 160), (32, 224),
+                                   (128, 128), (128, 160), (128, 224)]
+
+    # SM90 FP8 is K-major, SM120 FP8 supports both NT and TN, all other cases are MN-major.
+    if arch == 9 and dtype == torch.float8_e4m3fn:
+        major_pairs = [(MajorTypeAB.KMajor, MajorTypeAB.KMajor)]
+    elif arch == 12 and dtype == torch.float8_e4m3fn:
+        major_pairs = [(MajorTypeAB.KMajor, MajorTypeAB.KMajor), (MajorTypeAB.MNMajor, MajorTypeAB.MNMajor)]
+    else:
+        major_pairs = [(MajorTypeAB.MNMajor, MajorTypeAB.MNMajor)]
+
+    psum_list = (False, True) if arch == 10 else (False, )
+    # Must use FP32 accumulation and 1D1D kernels.
+    for major_a, major_b in major_pairs:
+        # The first shape has many small groups, stressing the SM90 in-place tensor-map update.
+        for num_groups, m, n, expected_k_per_group in (( 8,  768, 2048,  128),
+                                                       ( 4, 4096, 7168, 8192), ( 4, 7168, 2048, 8192),   # EP64
+                                                       ( 8, 4096, 7168, 4096), ( 8, 7168, 2048, 4096),   # EP32
+                                                       (16, 4096, 7168, 2048), (16, 7168, 2048, 2048)):  # EP16
+            real_ks_cpu = [max(1, int(expected_k_per_group * random.uniform(0.7, 1.3))) for _ in range(num_groups)]
+            for use_psum_layout in psum_list:
+                for gran_k, k_alignment in k_alignment_options:
+                    set_mk_alignment_for_contiguous_layout(k_alignment)
+                    aligned_ks_cpu = [align(k, k_alignment) for k in real_ks_cpu]
+                    yield num_groups, m, n, major_a, major_b, real_ks_cpu, aligned_ks_cpu, expected_k_per_group, gran_k, k_alignment, use_psum_layout
 
 
 def enumerate_k_grouped_contiguous_test_variants(real_ks_cpu: List[int], k_alignment: int,
@@ -321,7 +347,8 @@ def generate_normal(m: int, n: int, k: int,
     quant_config = QuantConfig() if quant_config is None else quant_config
     a = cast_fp8_fp4_with_major(a, major_a, quant_config.gran_k_a, quant_config.is_fp4_a, use_ue8m0)
     b = cast_fp8_fp4_with_major(b, major_b, quant_config.gran_k_b, quant_config.is_fp4_b, use_ue8m0,
-                                use_block_cast_for_fp8=not (kernel_type.is_1d1d() and accumulate))
+                                use_block_cast_for_fp8=not (kernel_type.is_1d1d() and accumulate)
+                                                       and not quant_config.is_fp4_a)
 
     return a, b, c, d, ref_d
 
@@ -363,7 +390,7 @@ def generate_m_grouped_contiguous(num_groups: int, expected_m_per_group: int, n:
     assert major_a.is_k_major()
     quant_config = QuantConfig() if quant_config is None else quant_config
     a = cast_fp8_fp4_with_major(a, major_a, quant_config.gran_k_a, quant_config.is_fp4_a, use_ue8m0)
-    b = grouped_cast_fp8_fp4_with_major(b, major_b, quant_config.gran_k_b, quant_config.is_fp4_b, use_ue8m0, use_block_cast_for_fp8=True)    
+    b = grouped_cast_fp8_fp4_with_major(b, major_b, quant_config.gran_k_b, quant_config.is_fp4_b, use_ue8m0, use_block_cast_for_fp8=not quant_config.is_fp4_a)
 
     return m, a, b, grouped_layout, d, ref_d
 
@@ -400,7 +427,7 @@ def generate_m_grouped_masked(num_groups: int, max_m: int, expected_m_per_group:
 
     quant_config = QuantConfig() if quant_config is None else quant_config
     a = grouped_cast_fp8_fp4_with_major(a, MajorTypeAB.KMajor, quant_config.gran_k_a, quant_config.is_fp4_a, use_ue8m0)
-    b = grouped_cast_fp8_fp4_with_major(b, MajorTypeAB.KMajor, quant_config.gran_k_b, quant_config.is_fp4_b, use_ue8m0, use_block_cast_for_fp8=True)    
+    b = grouped_cast_fp8_fp4_with_major(b, MajorTypeAB.KMajor, quant_config.gran_k_b, quant_config.is_fp4_b, use_ue8m0, use_block_cast_for_fp8=not quant_config.is_fp4_a)    
 
     if not use_psum_layout:
         # Zero SFA padding rows (beyond `masked_m`) so the pack kernel reads regular zeros

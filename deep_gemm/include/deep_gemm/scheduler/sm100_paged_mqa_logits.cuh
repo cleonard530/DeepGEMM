@@ -83,6 +83,17 @@ void sm100_paged_mqa_logits_metadata(const uint32_t num_requests,
     const uint32_t warp_idx = cutlass::canonical_warp_idx_sync();
     const uint32_t num_threads = blockDim.x;
 
+    // An empty varlen batch has a zero-byte dynamic-smem allocation. Handle it
+    // before touching prefix_work[0], and emit the same one-past-the-end
+    // sentinel for every scheduler boundary.
+    if (num_q_tokens_total == 0) {
+        for (uint32_t sm_idx = thread_idx; sm_idx <= kNumSMs; sm_idx += num_threads) {
+            schedule_meta[sm_idx * 2] = 0;
+            schedule_meta[sm_idx * 2 + 1] = 0;
+        }
+        return;
+    }
+
     // smem: per-request work prefix sum + request start token
     extern __shared__ uint32_t smem[];
     uint32_t* prefix_work = smem;                       // [num_requests]
