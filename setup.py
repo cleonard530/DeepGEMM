@@ -27,7 +27,7 @@ DG_JIT_USE_RUNTIME_API = int(os.environ.get('DG_JIT_USE_RUNTIME_API', '0')) == 1
 # Compiler flags
 cxx_flags = ['-std=c++17', '-O3', '-fPIC', '-Wno-psabi', '-Wno-deprecated-declarations',
              f'-D_GLIBCXX_USE_CXX11_ABI={int(torch.compiled_with_cxx11_abi())}',
-             '-DPy_LIMITED_API=0x03090000']
+             '-DPy_LIMITED_API=0x030a0000']
 if DG_JIT_USE_RUNTIME_API:
     cxx_flags.append('-DDG_JIT_USE_RUNTIME_API')
 
@@ -214,7 +214,7 @@ if __name__ == '__main__':
         },
         ext_modules=get_ext_modules(),
         zip_safe=False,
-        options={'bdist_wheel': {'py_limited_api': 'cp39'}},
+        options={'bdist_wheel': {'py_limited_api': 'cp310'}},
         cmdclass={
             'build_py': CustomBuildPy,
             'bdist_wheel': CachedWheelsCommand,
