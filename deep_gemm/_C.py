@@ -68,13 +68,18 @@ def _unpack_kv(kv):
     return kv[0], kv[1]
 
 
+def _as_int_list(value):
+    """Reject a bare scalar instead of letting int[N] silently broadcast it into a list."""
+    return None if value is None else list(value)
+
+
 def _register_deep_gemm_kernels():
     """Export DeepGEMM kernels only when C++ ops are registered."""
     def fp8_fp4_gemm_nt(a, b, d, c=None, recipe=None, recipe_a=None, recipe_b=None,
                         compiled_dims='nk', disable_ue8m0_cast=False):
         a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
         return _torch_ops.fp8_fp4_gemm_nt(
-            a_tensor, sfa, b_tensor, sfb, d, c, recipe, recipe_a, recipe_b,
+            a_tensor, sfa, b_tensor, sfb, d, c, _as_int_list(recipe), _as_int_list(recipe_a), _as_int_list(recipe_b),
             compiled_dims, disable_ue8m0_cast,
         )
 
@@ -82,7 +87,7 @@ def _register_deep_gemm_kernels():
                         compiled_dims='nk', disable_ue8m0_cast=False):
         a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
         return _torch_ops.fp8_fp4_gemm_nn(
-            a_tensor, sfa, b_tensor, sfb, d, c, recipe, recipe_a, recipe_b,
+            a_tensor, sfa, b_tensor, sfb, d, c, _as_int_list(recipe), _as_int_list(recipe_a), _as_int_list(recipe_b),
             compiled_dims, disable_ue8m0_cast,
         )
 
@@ -90,7 +95,7 @@ def _register_deep_gemm_kernels():
                         compiled_dims='mn', disable_ue8m0_cast=False):
         a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
         return _torch_ops.fp8_fp4_gemm_tn(
-            a_tensor, sfa, b_tensor, sfb, d, c, recipe, recipe_a, recipe_b,
+            a_tensor, sfa, b_tensor, sfb, d, c, _as_int_list(recipe), _as_int_list(recipe_a), _as_int_list(recipe_b),
             compiled_dims, disable_ue8m0_cast,
         )
 
@@ -98,7 +103,7 @@ def _register_deep_gemm_kernels():
                         compiled_dims='mn', disable_ue8m0_cast=False):
         a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
         return _torch_ops.fp8_fp4_gemm_tt(
-            a_tensor, sfa, b_tensor, sfb, d, c, recipe, recipe_a, recipe_b,
+            a_tensor, sfa, b_tensor, sfb, d, c, _as_int_list(recipe), _as_int_list(recipe_a), _as_int_list(recipe_b),
             compiled_dims, disable_ue8m0_cast,
         )
 
@@ -107,7 +112,7 @@ def _register_deep_gemm_kernels():
                                              ensure_zero_padding=True, expected_m_for_psum_layout=None):
         a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
         return _torch_ops.m_grouped_fp8_fp4_gemm_nt_contiguous(
-            a_tensor, sfa, b_tensor, sfb, d, grouped_layout, recipe, recipe_a, recipe_b,
+            a_tensor, sfa, b_tensor, sfb, d, grouped_layout, _as_int_list(recipe), _as_int_list(recipe_a), _as_int_list(recipe_b),
             compiled_dims, disable_ue8m0_cast, use_psum_layout, ensure_zero_padding,
             expected_m_for_psum_layout,
         )
@@ -117,7 +122,7 @@ def _register_deep_gemm_kernels():
                                              ensure_zero_padding=True):
         a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
         return _torch_ops.m_grouped_fp8_fp4_gemm_nn_contiguous(
-            a_tensor, sfa, b_tensor, sfb, d, grouped_layout, recipe, recipe_a, recipe_b,
+            a_tensor, sfa, b_tensor, sfb, d, grouped_layout, _as_int_list(recipe), _as_int_list(recipe_a), _as_int_list(recipe_b),
             compiled_dims, disable_ue8m0_cast, use_psum_layout, ensure_zero_padding,
         )
 
@@ -125,7 +130,7 @@ def _register_deep_gemm_kernels():
                                          compiled_dims='nk', disable_ue8m0_cast=False):
         a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
         return _torch_ops.m_grouped_fp8_fp4_gemm_nt_masked(
-            a_tensor, sfa, b_tensor, sfb, d, masked_m, expected_m, recipe, recipe_a, recipe_b,
+            a_tensor, sfa, b_tensor, sfb, d, masked_m, expected_m, _as_int_list(recipe), _as_int_list(recipe_a), _as_int_list(recipe_b),
             compiled_dims, disable_ue8m0_cast,
         )
 
@@ -148,7 +153,7 @@ def _register_deep_gemm_kernels():
     def fp8_gemm_nt_skip_head_mid(a, b, d, head_splits, recipe=None, compiled_dims='nk', disable_ue8m0_cast=False):
         a_tensor, sfa, b_tensor, sfb = _unpack_ab_pair(a, b)
         return _torch_ops.fp8_gemm_nt_skip_head_mid(
-            a_tensor, sfa, b_tensor, sfb, d, list(head_splits), recipe, compiled_dims, disable_ue8m0_cast,
+            a_tensor, sfa, b_tensor, sfb, d, list(head_splits), _as_int_list(recipe), compiled_dims, disable_ue8m0_cast,
         )
 
     def fp8_einsum(expr, a, b, d, c=None, recipe=(1, 128, 128)):

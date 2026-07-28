@@ -91,6 +91,10 @@ def schema_type_to_python(type_str: str) -> str:
         py_type = 'str'
     elif type_str == 'int[]':
         py_type = 'list[int]'
+    elif re.match(r'^int\[\d+\]$', type_str):
+        # Fixed-size int[N] maps directly to a same-arity tuple.
+        n = int(re.match(r'^int\[(\d+)\]$', type_str).group(1))
+        py_type = f"tuple[{', '.join(['int'] * n)}]"
     elif type_str == 'ScalarType':
         py_type = 'torch.dtype'
     else:
@@ -295,26 +299,13 @@ def _maybe_widen_int_list_value_param(parameters: list[dict]) -> None:
             parameters[0]['py_type'] = 'int | list[int]'
 
 
-def _promote_int_list_tuple_types(op_name: str, parameters: list[dict]) -> None:
-    """Promote int[] schema params to fixed-size tuples matching the public _C.py API."""
-    for param in parameters:
-        name = param['name']
-        py_type = param['py_type']
-
-        if name == 'head_splits' and py_type == 'list[int]':
-            param['py_type'] = 'tuple[int, int, int]'
-        elif name == 'recipe_a' and py_type == 'Optional[list[int]]':
-            param['py_type'] = 'Optional[tuple[int, int]]'
-        elif name == 'recipe_b' and py_type == 'Optional[list[int]]':
-            param['py_type'] = 'Optional[tuple[int, int]]'
-        elif name == 'recipe' and op_name == 'transform_sf_into_required_layout':
-            if py_type == 'list[int]':
-                param['py_type'] = 'tuple[int, int] | tuple[int, int, int]'
-        elif name == 'recipe':
-            if py_type == 'list[int]':
-                param['py_type'] = 'tuple[int, int, int]'
-            elif py_type == 'Optional[list[int]]':
-                param['py_type'] = 'Optional[tuple[int, int, int]]'
+def _promote_transform_sf_recipe_type(op_name: str, parameters: list[dict]) -> None:
+    """transform_sf_into_required_layout's recipe is a std::variant, which int[N] can't express, so promote it here."""
+    if op_name != 'transform_sf_into_required_layout':
+        return
+    recipe = next((p for p in parameters if p['name'] == 'recipe'), None)
+    if recipe is not None and recipe['py_type'] == 'list[int]':
+        recipe['py_type'] = 'tuple[int, int] | tuple[int, int, int]'
 
 
 def adjust_for_c_py_wrapper(
@@ -330,7 +321,7 @@ def adjust_for_c_py_wrapper(
         parameters = _merge_named_pairs(parameters, tuple(pairs))
 
     _maybe_widen_int_list_value_param(parameters)
-    _promote_int_list_tuple_types(name, parameters)
+    _promote_transform_sf_recipe_type(name, parameters)
 
     return parameters
 
