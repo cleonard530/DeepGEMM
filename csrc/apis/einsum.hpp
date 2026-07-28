@@ -287,8 +287,8 @@ static void fp8_einsum(const std::string& expr,
                        const torch::Tensor& a, const torch::Tensor& sfa,
                        const torch::Tensor& b, const torch::Tensor& sfb,
                        const torch::Tensor& d, const c10::optional<torch::Tensor>& c,
-                       const c10::optional<c10::List<int64_t>>& recipe) {
-    einsum::fp8_einsum(expr, {a, sfa}, {b, sfb}, d, c, list_to_tuple3(recipe.value()));
+                       const c10::List<int64_t>& recipe) {
+    einsum::fp8_einsum(expr, {a, sfa}, {b, sfb}, d, c, list_to_tuple3(recipe));
 }
 #endif
 
@@ -299,7 +299,7 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
     m.def(
         "einsum(str expr, Tensor a, Tensor b, Tensor(d!) d, Tensor? c=None, bool use_cublaslt=False) -> ()");
     m.def(
-        "fp8_einsum(str expr, Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, Tensor? c=None, int[]? recipe=None) -> ()");
+        "fp8_einsum(str expr, Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, Tensor? c=None, int[] recipe) -> ()");
 #endif
 }
 
