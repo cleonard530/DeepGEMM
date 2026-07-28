@@ -152,7 +152,7 @@ def _register_deep_gemm_kernels():
         )
 
     def fp8_einsum(expr, a, b, d, c=None, recipe=(1, 128, 128)):
-        return _torch_ops.fp8_einsum(expr, a[0], a[1], b[0], b[1], d, c, list(recipe) if recipe is not None else None)
+        return _torch_ops.fp8_einsum(expr, a[0], a[1], b[0], b[1], d, c, list(recipe))
 
     def fp8_fp4_mqa_logits(q, kv, weights, cu_seq_len_k_start, cu_seq_len_k_end, clean_logits=True,
                            max_seqlen_k=0, logits_dtype=torch.float32):

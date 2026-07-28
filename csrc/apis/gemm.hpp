@@ -899,12 +899,12 @@ static void k_grouped_fp8_gemm_tn_contiguous(
     const c10::optional<c10::List<int64_t>>& ks_cpu,
     const torch::Tensor& grouped_layout,
     const c10::optional<torch::Tensor>& c,
-    const c10::optional<c10::List<int64_t>>& recipe,
+    const c10::List<int64_t>& recipe,
     const std::string& compiled_dims, const bool& use_psum_layout) {
     gemm::k_grouped_fp8_gemm_tn_contiguous(
         {a, sfa}, {b, sfb}, d,
         list_to_optional_vector_int(ks_cpu), grouped_layout, c,
-        list_to_tuple3(recipe.value()), compiled_dims, use_psum_layout);
+        list_to_tuple3(recipe), compiled_dims, use_psum_layout);
 }
 
 static void k_grouped_fp8_gemm_nt_contiguous(
@@ -914,12 +914,12 @@ static void k_grouped_fp8_gemm_nt_contiguous(
     const c10::optional<c10::List<int64_t>>& ks_cpu,
     const torch::Tensor& grouped_layout,
     const c10::optional<torch::Tensor>& c,
-    const c10::optional<c10::List<int64_t>>& recipe,
+    const c10::List<int64_t>& recipe,
     const std::string& compiled_dims, const bool& use_psum_layout) {
     gemm::k_grouped_fp8_gemm_nt_contiguous(
         {a, sfa}, {b, sfb}, d,
         list_to_optional_vector_int(ks_cpu), grouped_layout, c,
-        list_to_tuple3(recipe.value()), compiled_dims, use_psum_layout);
+        list_to_tuple3(recipe), compiled_dims, use_psum_layout);
 }
 #endif
 
@@ -1032,9 +1032,9 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
     m.def(
         "m_grouped_fp8_fp4_gemm_nt_masked(Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, Tensor masked_m, int expected_m, int[]? recipe=None, int[]? recipe_a=None, int[]? recipe_b=None, str compiled_dims='nk', bool disable_ue8m0_cast=False) -> ()");
     m.def(
-        "k_grouped_fp8_gemm_tn_contiguous(Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, int[]? ks_cpu, Tensor grouped_layout, Tensor? c=None, int[]? recipe=None, str compiled_dims='mn', bool use_psum_layout=False) -> ()");
+        "k_grouped_fp8_gemm_tn_contiguous(Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, int[]? ks_cpu, Tensor grouped_layout, Tensor? c=None, int[] recipe, str compiled_dims='mn', bool use_psum_layout=False) -> ()");
     m.def(
-        "k_grouped_fp8_gemm_nt_contiguous(Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, int[]? ks_cpu, Tensor grouped_layout, Tensor? c=None, int[]? recipe=None, str compiled_dims='mn', bool use_psum_layout=False) -> ()");
+        "k_grouped_fp8_gemm_nt_contiguous(Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, int[]? ks_cpu, Tensor grouped_layout, Tensor? c=None, int[] recipe, str compiled_dims='mn', bool use_psum_layout=False) -> ()");
 #endif
 
 #if DG_TENSORMAP_COMPATIBLE
