@@ -3,10 +3,6 @@ import ast
 import re
 from pathlib import Path
 
-_TENSOR_PAIR = 'tuple[torch.Tensor, torch.Tensor]'
-_Q_TUPLE = 'tuple[torch.Tensor, Optional[torch.Tensor]]'
-
-
 class BracketTracker:
     """Track () [] {} <> nesting for top-level comma/default splitting."""
 
@@ -228,20 +224,31 @@ def parse_torch_schema(schema: str) -> dict:
 
 def _merge_named_pairs(parameters: list[dict], pairs: tuple[tuple[str, str], ...]) -> list[dict]:
     """Replace (tensor, scale_factor) arg pairs with one tuple-typed parameter."""
-    drop = {right for left, right in pairs}
-    merged_left = {left for left, _ in pairs}
+    by_name = {param['name']: param for param in parameters}
+    sf_of = dict(pairs)
+    drop = set(sf_of.values())
+
     out = []
     for param in parameters:
         if param['name'] in drop:
             continue
-        if param['name'] in merged_left:
-            out.append({
-                'name': param['name'],
-                'py_type': _TENSOR_PAIR,
-                'default': None,
-            })
+        sf_name = sf_of.get(param['name'])
+        if sf_name is None:
+            out.append(dict(param))
             continue
-        out.append(dict(param))
+        base_optional = param['py_type'] == 'Optional[torch.Tensor]'
+        sf_optional = by_name[sf_name]['py_type'] == 'Optional[torch.Tensor]'
+        if base_optional and sf_optional:
+            py_type = 'Optional[tuple[torch.Tensor, torch.Tensor]]'
+        elif sf_optional:
+            py_type = 'tuple[torch.Tensor, Optional[torch.Tensor]]'
+        else:
+            py_type = 'tuple[torch.Tensor, torch.Tensor]'
+        out.append({
+            'name': param['name'],
+            'py_type': py_type,
+            'default': None,
+        })
     return out
 
 
@@ -276,22 +283,6 @@ def detect_tensor_sf_pairs(parameters: list[dict]) -> list[tuple[str, str]]:
     return pairs
 
 
-def _apply_q_qsf_merge(parameters: list[dict]) -> list[dict]:
-    """Merge optional q_sf into q for attention wrappers."""
-    if not any(param['name'] == 'q_sf' for param in parameters):
-        return [dict(param) for param in parameters]
-
-    out = []
-    for param in parameters:
-        if param['name'] == 'q_sf':
-            continue
-        param = dict(param)
-        if param['name'] == 'q':
-            param['py_type'] = _Q_TUPLE
-        out.append(param)
-    return out
-
-
 def _maybe_widen_int_list_value_param(parameters: list[dict]) -> None:
     """Single int[] value param in a Python wrapper usually accepts int | list[int]."""
     if len(parameters) == 1 and parameters[0]['name'] == 'value':
@@ -314,8 +305,6 @@ def adjust_for_c_py_wrapper(
     wrapper_defaults: dict[str, dict[str, str]] | None = None,
 ) -> list[dict]:
     """Adjust flat schema params to match deep_gemm._C Python wrappers."""
-    parameters = _apply_q_qsf_merge(parameters)
-
     pairs = detect_tensor_sf_pairs(parameters)
     if pairs:
         parameters = _merge_named_pairs(parameters, tuple(pairs))
@@ -324,12 +313,6 @@ def adjust_for_c_py_wrapper(
     _promote_transform_sf_recipe_type(name, parameters)
 
     return parameters
-
-
-def sanitize_param_name(name: str) -> str:
-    if name in {'def', 'class', 'from', 'import', 'None', 'True', 'False'}:
-        return f'{name}_'
-    return name
 
 
 def format_ast_default(node: ast.AST) -> str:
@@ -419,7 +402,7 @@ def extract_m_def_statements(root_path) -> list[str]:
     statements = []
     extensions = {'.hpp', '.cpp', '.h', '.cc'}
 
-    for file_path in Path(root_path).rglob('*'):
+    for file_path in sorted(Path(root_path).rglob('*')):
         if file_path.suffix.lower() not in extensions:
             continue
         if not file_path.is_file():
@@ -537,7 +520,7 @@ def generate_pyi_function(parsed, wrapper_defaults=None):
 
     param_lines = []
     for param in parameters:
-        name = sanitize_param_name(param['name'])
+        name = param['name']
         if param['default'] is not None:
             param_lines.append(f'    {name}: {param["py_type"]} = {param["default"]}')
         else:
