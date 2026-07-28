@@ -60,6 +60,46 @@ struct SymmBufferLayoutInfo {
     int shared_intermediate_hidden = 0;
     int num_ring_tokens = 0;
     int num_sf_ring_tokens = 0;
+
+    // Flatten into a plain `int[]` so it can cross the TORCH_LIBRARY boundary
+    c10::List<int64_t> to_int_list() const {
+        return {
+            num_bytes, input_token_base, input_sf_base, input_topk_idx_base, input_topk_weights_base,
+            shared_l1_sf_base, shared_l2_token_base, shared_l2_sf_base,
+            l1_token_base, l1_sf_base, l2_token_base, l2_sf_base,
+            static_cast<int64_t>(with_sf), num_max_tokens_per_rank, num_topk,
+            hidden, intermediate_hidden, num_shared_experts, shared_intermediate_hidden,
+            num_ring_tokens, num_sf_ring_tokens,
+        };
+    }
+
+    static SymmBufferLayoutInfo from_int_list(const c10::List<int64_t>& values) {
+        DG_HOST_ASSERT(static_cast<int64_t>(values.size()) == 21);
+        SymmBufferLayoutInfo info;
+        info.num_bytes = values[0];
+        info.input_token_base = values[1];
+        info.input_sf_base = values[2];
+        info.input_topk_idx_base = values[3];
+        info.input_topk_weights_base = values[4];
+        info.shared_l1_sf_base = values[5];
+        info.shared_l2_token_base = values[6];
+        info.shared_l2_sf_base = values[7];
+        info.l1_token_base = values[8];
+        info.l1_sf_base = values[9];
+        info.l2_token_base = values[10];
+        info.l2_sf_base = values[11];
+        // `with_sf` is a bool, encoded as 0/1 since the list is all `int64_t`.
+        info.with_sf = values[12] != 0;
+        info.num_max_tokens_per_rank = static_cast<int>(values[13]);
+        info.num_topk = static_cast<int>(values[14]);
+        info.hidden = static_cast<int>(values[15]);
+        info.intermediate_hidden = static_cast<int>(values[16]);
+        info.num_shared_experts = static_cast<int>(values[17]);
+        info.shared_intermediate_hidden = static_cast<int>(values[18]);
+        info.num_ring_tokens = static_cast<int>(values[19]);
+        info.num_sf_ring_tokens = static_cast<int>(values[20]);
+        return info;
+    }
 };
 
 static SymmBufferLayoutInfo build_symm_buffer_layout(
@@ -157,15 +197,16 @@ static SymmBufferLayoutInfo build_symm_buffer_layout(
     return layout_info;
 }
 
-static int64_t get_symm_buffer_size_for_mega_moe(
+static std::tuple<int64_t, c10::List<int64_t>> get_symm_buffer_size_for_mega_moe(
     const int& num_ranks, const int& num_experts,
     const int& num_max_tokens_per_rank, const int& num_topk,
     const int& hidden, const int& intermediate_hidden,
     const std::string& mma_type, const std::string& activation,
     const int& num_shared_experts = 0) {
-    return build_symm_buffer_layout(
+    const auto layout_info = build_symm_buffer_layout(
         num_ranks, num_experts, num_max_tokens_per_rank, num_topk,
-        hidden, intermediate_hidden, mma_type, activation, num_shared_experts).num_bytes;
+        hidden, intermediate_hidden, mma_type, activation, num_shared_experts);
+    return std::make_tuple(layout_info.num_bytes, layout_info.to_int_list());
 }
 
 using SymmBufferSlice = std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor,
@@ -245,20 +286,6 @@ static SymmBufferSlice slice_symm_buffer_from_layout(
     return std::make_tuple(x, x_sf, topk_idx, topk_weights,
                            shared_l1_acts, shared_l1_acts_sf, shared_l2_acts, shared_l2_acts_sf,
                            l1_acts, l1_acts_sf, l2_acts, l2_acts_sf);
-}
-
-static SymmBufferSlice slice_symm_buffer_for_mega_moe(
-    const torch::Tensor& buffer,
-    const int& num_ranks, const int& num_experts,
-    const int& num_max_tokens_per_rank, const int& num_topk,
-    const int& hidden, const int& intermediate_hidden,
-    const std::string& mma_type, const std::string& activation,
-    const int& num_shared_experts = 0) {
-    return slice_symm_buffer_from_layout(
-        buffer,
-        build_symm_buffer_layout(
-            num_ranks, num_experts, num_max_tokens_per_rank, num_topk,
-            hidden, intermediate_hidden, mma_type, activation, num_shared_experts));
 }
 
 static void fp8_fp4_mega_moe(
@@ -728,7 +755,7 @@ static int64_t get_block_m_for_mega_moe(
         static_cast<int>(num_topk), mma_type));
 }
 
-static int64_t get_symm_buffer_size_for_mega_moe(
+static std::tuple<int64_t, c10::List<int64_t>> get_symm_buffer_size_for_mega_moe(
     const int64_t& num_ranks, const int64_t& num_experts,
     const int64_t& num_max_tokens_per_rank, const int64_t& num_topk,
     const int64_t& hidden, const int64_t& intermediate_hidden,
@@ -743,17 +770,9 @@ static int64_t get_symm_buffer_size_for_mega_moe(
 
 static mega::SymmBufferSlice _slice_symm_buffer_for_mega_moe(
     const torch::Tensor& buffer,
-    const int64_t& num_ranks, const int64_t& num_experts,
-    const int64_t& num_max_tokens_per_rank, const int64_t& num_topk,
-    const int64_t& hidden, const int64_t& intermediate_hidden,
-    const std::string& mma_type, const std::string& activation,
-    const int64_t& num_shared_experts) {
-    return mega::slice_symm_buffer_for_mega_moe(
-        buffer,
-        static_cast<int>(num_ranks), static_cast<int>(num_experts),
-        static_cast<int>(num_max_tokens_per_rank), static_cast<int>(num_topk),
-        static_cast<int>(hidden), static_cast<int>(intermediate_hidden),
-        mma_type, activation, static_cast<int>(num_shared_experts));
+    const c10::List<int64_t>& layout_info) {
+    return mega::slice_symm_buffer_from_layout(
+        buffer, mega::SymmBufferLayoutInfo::from_int_list(layout_info));
 }
 
 static void fp8_fp4_mega_moe(
@@ -847,10 +866,10 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
         "get_block_m_for_mega_moe(int num_ranks, int num_experts, int num_max_tokens_per_rank, int num_tokens, int num_topk, str mma_type) -> int",
         TORCH_FN(deep_gemm::torch_registration::get_block_m_for_mega_moe));
     m.def(
-        "get_symm_buffer_size_for_mega_moe(int num_ranks, int num_experts, int num_max_tokens_per_rank, int num_topk, int hidden, int intermediate_hidden, str mma_type, str activation, int num_shared_experts=0) -> int",
+        "get_symm_buffer_size_for_mega_moe(int num_ranks, int num_experts, int num_max_tokens_per_rank, int num_topk, int hidden, int intermediate_hidden, str mma_type, str activation, int num_shared_experts=0) -> (int, int[])",
         TORCH_FN(deep_gemm::torch_registration::get_symm_buffer_size_for_mega_moe));
     m.def(
-        "_slice_symm_buffer_for_mega_moe(Tensor buffer, int num_ranks, int num_experts, int num_max_tokens_per_rank, int num_topk, int hidden, int intermediate_hidden, str mma_type, str activation, int num_shared_experts=0) -> (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor)");
+        "_slice_symm_buffer_for_mega_moe(Tensor buffer, int[] layout_info) -> (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor)");
     m.def(
         "fp8_fp4_mega_moe(Tensor(y!) y, Tensor l1_weights, Tensor l1_weights_sf, Tensor l2_weights, Tensor l2_weights_sf, Tensor? shared_l1_weights, Tensor? shared_l1_weights_sf, Tensor? shared_l2_weights, Tensor? shared_l2_weights_sf, Tensor(cumulative_local_expert_recv_stats!)? cumulative_local_expert_recv_stats, Tensor(sym_buffer!) sym_buffer, int[] sym_buffer_ptrs, int rank_idx, int num_max_tokens_per_rank, int num_experts, int num_topk, int[] recipe, str activation, float? activation_clamp, bool fast_math) -> ()");
     m.def(
