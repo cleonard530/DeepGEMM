@@ -35,16 +35,9 @@ class SymmBuffer:
         self.mma_type = mma_type
         self.activation = activation
 
-        # Allocate a symmetric buffer
-        num_bytes = _C.get_symm_buffer_size_for_mega_moe(
-            group.size(), num_experts,
-            num_max_tokens_per_rank, num_topk,
-            hidden, intermediate_hidden,
-            mma_type, activation,
-            num_shared_experts,
-        )
-        slice_input_buffers = lambda buffer: _C._slice_symm_buffer_for_mega_moe(
-            buffer,
+        # Allocate a symmetric buffer. The layout is computed once here and reused for
+        # slicing below.
+        num_bytes, layout_info = _C.get_symm_buffer_size_for_mega_moe(
             group.size(), num_experts,
             num_max_tokens_per_rank, num_topk,
             hidden, intermediate_hidden,
@@ -68,7 +61,7 @@ class SymmBuffer:
          self.shared_l1_acts, self.shared_l1_acts_sf,
          self.shared_l2_acts, self.shared_l2_acts_sf,
          self.l1_acts, self.l1_acts_sf,
-         self.l2_acts, self.l2_acts_sf) = slice_input_buffers(self.buffer)
+         self.l2_acts, self.l2_acts_sf) = _C._slice_symm_buffer_for_mega_moe(self.buffer, layout_info)
 
     def destroy(self):
         self.handle = None
