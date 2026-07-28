@@ -299,7 +299,7 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
     m.def(
         "einsum(str expr, Tensor a, Tensor b, Tensor(d!) d, Tensor? c=None, bool use_cublaslt=False) -> ()");
     m.def(
-        "fp8_einsum(str expr, Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, Tensor? c=None, int[] recipe) -> ()");
+        "fp8_einsum(str expr, Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, Tensor? c=None, int[3] recipe) -> ()");
 #endif
 }
 
