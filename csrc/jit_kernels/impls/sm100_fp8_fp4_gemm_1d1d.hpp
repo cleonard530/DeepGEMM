@@ -1,6 +1,10 @@
 #pragma once
 
-#include <torch/all.h>
+#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/accelerator.h>
+#include <torch/headeronly/core/ScalarType.h>
+#include <torch/csrc/stable/device.h>
 
 #include "../../jit/compiler.hpp"
 #include "../../jit/device_runtime.hpp"
@@ -90,10 +94,10 @@ static void __instantiate_kernel() {{
     }
 };
 
-static void sm100_fp8_fp4_gemm_1d1d(const torch::Tensor& a, const torch::Tensor& sfa,
-                                    const torch::Tensor& b, const torch::Tensor& sfb,
-                                    const std::optional<torch::Tensor>& c,
-                                    const torch::Tensor& d,
+static void sm100_fp8_fp4_gemm_1d1d(const torch::stable::Tensor& a, const torch::stable::Tensor& sfa,
+                                    const torch::stable::Tensor& b, const torch::stable::Tensor& sfb,
+                                    const std::optional<torch::stable::Tensor>& c,
+                                    const torch::stable::Tensor& d,
                                     const int& m, const int& n, const int& k,
                                     const int& gran_k_a, const int& gran_k_b,
                                     const cute::UMMA::Major& major_a, const cute::UMMA::Major& major_b,
@@ -158,10 +162,10 @@ static void sm100_fp8_fp4_gemm_1d1d(const torch::Tensor& a, const torch::Tensor&
     SM100FP8FP4Gemm1D1DRuntime::launch(runtime, args);
 }
 
-static void sm100_m_grouped_fp8_fp4_gemm_contiguous_1d1d(const torch::Tensor& a, const torch::Tensor& sfa,
-                                                         const torch::Tensor& b, const torch::Tensor& sfb,
-                                                         const torch::Tensor& d,
-                                                         const torch::Tensor& grouped_layout,
+static void sm100_m_grouped_fp8_fp4_gemm_contiguous_1d1d(const torch::stable::Tensor& a, const torch::stable::Tensor& sfa,
+                                                         const torch::stable::Tensor& b, const torch::stable::Tensor& sfb,
+                                                         const torch::stable::Tensor& d,
+                                                         const torch::stable::Tensor& grouped_layout,
                                                          const int& num_groups, const int& m, const int& n, const int& k,
                                                          const int& gran_k_a, const int& gran_k_b,
                                                          const cute::UMMA::Major& major_a, const cute::UMMA::Major& major_b,
@@ -229,7 +233,7 @@ static void sm100_m_grouped_fp8_fp4_gemm_contiguous_1d1d(const torch::Tensor& a,
         .gran_k_b = gran_k_b,
         // NOTES: `k_alignment` is only used by k-grouped psum, dummy here
         .k_alignment = gran_k_a,
-        .grouped_layout = grouped_layout.data_ptr(),
+        .grouped_layout = grouped_layout.mutable_data_ptr(),
         .tensor_map_a = tensor_map_a,
         .tensor_map_b = tensor_map_b,
         .tensor_map_sfa = tensor_map_sfa,
@@ -241,10 +245,10 @@ static void sm100_m_grouped_fp8_fp4_gemm_contiguous_1d1d(const torch::Tensor& a,
     SM100FP8FP4Gemm1D1DRuntime::launch(runtime, args);
 }
 
-static void sm100_m_grouped_fp8_fp4_gemm_masked_1d1d(const torch::Tensor& a, const torch::Tensor& sfa,
-                                                     const torch::Tensor& b, const torch::Tensor& sfb,
-                                                     const torch::Tensor& d,
-                                                     const torch::Tensor& masked_m,
+static void sm100_m_grouped_fp8_fp4_gemm_masked_1d1d(const torch::stable::Tensor& a, const torch::stable::Tensor& sfa,
+                                                     const torch::stable::Tensor& b, const torch::stable::Tensor& sfb,
+                                                     const torch::stable::Tensor& d,
+                                                     const torch::stable::Tensor& masked_m,
                                                      const int& num_groups, const int& m, const int& n, const int& k,
                                                      const int& expected_m,
                                                      const int& gran_k_a, const int& gran_k_b,
@@ -298,7 +302,7 @@ static void sm100_m_grouped_fp8_fp4_gemm_masked_1d1d(const torch::Tensor& a, con
         .gran_k_b = gran_k_b,
         // NOTES: `k_alignment` is only used by k-grouped psum, dummy here
         .k_alignment = gran_k_a,
-        .grouped_layout = masked_m.data_ptr(),
+        .grouped_layout = masked_m.mutable_data_ptr(),
         .tensor_map_a = tensor_map_a,
         .tensor_map_b = tensor_map_b,
         .tensor_map_sfa = tensor_map_sfa,
@@ -310,12 +314,12 @@ static void sm100_m_grouped_fp8_fp4_gemm_masked_1d1d(const torch::Tensor& a, con
     SM100FP8FP4Gemm1D1DRuntime::launch(runtime, args);
 }
 
-static void sm100_k_grouped_fp8_gemm_1d1d(const torch::Tensor& a, const torch::Tensor& sfa,
-                                          const torch::Tensor& b, const torch::Tensor& sfb,
-                                          const std::optional<torch::Tensor>& c,
-                                          const torch::Tensor& d,
+static void sm100_k_grouped_fp8_gemm_1d1d(const torch::stable::Tensor& a, const torch::stable::Tensor& sfa,
+                                          const torch::stable::Tensor& b, const torch::stable::Tensor& sfb,
+                                          const std::optional<torch::stable::Tensor>& c,
+                                          const torch::stable::Tensor& d,
                                           const int& m, const int& n,
-                                          const torch::Tensor& grouped_layout,
+                                          const torch::stable::Tensor& grouped_layout,
                                           const int& gran_k,
                                           const int& k_alignment,
                                           const cute::UMMA::Major& major_a, const cute::UMMA::Major& major_b,
@@ -378,7 +382,7 @@ static void sm100_k_grouped_fp8_gemm_1d1d(const torch::Tensor& a, const torch::T
         .gran_k_a = gran_k_a,
         .gran_k_b = gran_k_b,
         .k_alignment = k_alignment,
-        .grouped_layout = grouped_layout.data_ptr(),
+        .grouped_layout = grouped_layout.mutable_data_ptr(),
         .tensor_map_a = tensor_map_a,
         .tensor_map_b = tensor_map_b,
         .tensor_map_sfa = tensor_map_sfa,
@@ -390,10 +394,10 @@ static void sm100_k_grouped_fp8_gemm_1d1d(const torch::Tensor& a, const torch::T
     SM100FP8FP4Gemm1D1DRuntime::launch(runtime, args);
 }
 
-static void sm100_fp8_bmm(const torch::Tensor& a, const torch::Tensor& sfa,
-                          const torch::Tensor& b, const torch::Tensor& sfb,
-                          const std::optional<torch::Tensor>& c,
-                          const torch::Tensor& d,
+static void sm100_fp8_bmm(const torch::stable::Tensor& a, const torch::stable::Tensor& sfa,
+                          const torch::stable::Tensor& b, const torch::stable::Tensor& sfb,
+                          const std::optional<torch::stable::Tensor>& c,
+                          const torch::stable::Tensor& d,
                           const int& batch_size, const int& m, const int& n, const int& k,
                           const int& gran_k_a, const int& gran_k_b,
                           const cute::UMMA::Major& major_a, const cute::UMMA::Major& major_b,

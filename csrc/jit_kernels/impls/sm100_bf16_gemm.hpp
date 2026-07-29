@@ -1,6 +1,10 @@
 #pragma once
 
-#include <torch/all.h>
+#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/accelerator.h>
+#include <torch/headeronly/core/ScalarType.h>
+#include <torch/csrc/stable/device.h>
 
 #include "../../jit/compiler.hpp"
 #include "../../jit/device_runtime.hpp"
@@ -77,10 +81,10 @@ static void __instantiate_kernel() {{
     }
 };
 
-static void sm100_bf16_gemm(const torch::Tensor& a,
-                            const torch::Tensor& b,
-                            const std::optional<torch::Tensor>& c,
-                            const torch::Tensor& d,
+static void sm100_bf16_gemm(const torch::stable::Tensor& a,
+                            const torch::stable::Tensor& b,
+                            const std::optional<torch::stable::Tensor>& c,
+                            const torch::stable::Tensor& d,
                             const int& m, const int& n, const int& k,
                             const cute::UMMA::Major& major_a, const cute::UMMA::Major& major_b,
                             const std::string& compiled_dims) {
@@ -130,10 +134,10 @@ static void sm100_bf16_gemm(const torch::Tensor& a,
     SM100BF16GemmRuntime::launch(runtime, args);
 }
 
-static void sm100_m_grouped_bf16_gemm_contiguous(const torch::Tensor& a,
-                                                 const torch::Tensor& b,
-                                                 const torch::Tensor& d,
-                                                 const torch::Tensor& grouped_layout,
+static void sm100_m_grouped_bf16_gemm_contiguous(const torch::stable::Tensor& a,
+                                                 const torch::stable::Tensor& b,
+                                                 const torch::stable::Tensor& d,
+                                                 const torch::stable::Tensor& grouped_layout,
                                                  const int& num_groups, const int& m, const int& n, const int& k,
                                                  const cute::UMMA::Major& major_a, const cute::UMMA::Major& major_b,
                                                  const std::string& compiled_dims,
@@ -189,7 +193,7 @@ static void sm100_m_grouped_bf16_gemm_contiguous(const torch::Tensor& a,
         .launch_args = LaunchArgs(config.launch_config.num_sms, config.launch_config.num_threads,
                                   config.pipeline_config.smem_size,
                                   config.layout.get_cluster_size()),
-        .grouped_layout = grouped_layout.data_ptr(),
+        .grouped_layout = grouped_layout.mutable_data_ptr(),
         .tensor_map_a = tensor_map_a,
         .tensor_map_b = tensor_map_b,
         .tensor_map_cd = tensor_map_cd
@@ -199,10 +203,10 @@ static void sm100_m_grouped_bf16_gemm_contiguous(const torch::Tensor& a,
     SM100BF16GemmRuntime::launch(runtime, args);
 }
 
-static void sm100_m_grouped_bf16_gemm_masked(const torch::Tensor& a,
-                                             const torch::Tensor& b,
-                                             const torch::Tensor& d,
-                                             const torch::Tensor& masked_m,
+static void sm100_m_grouped_bf16_gemm_masked(const torch::stable::Tensor& a,
+                                             const torch::stable::Tensor& b,
+                                             const torch::stable::Tensor& d,
+                                             const torch::stable::Tensor& masked_m,
                                              const int& num_groups, const int& m, const int& n, const int& k,
                                              const int& expected_m,
                                              const cute::UMMA::Major& major_a, const cute::UMMA::Major& major_b,
@@ -244,7 +248,7 @@ static void sm100_m_grouped_bf16_gemm_masked(const torch::Tensor& a,
         .launch_args = LaunchArgs(config.launch_config.num_sms, config.launch_config.num_threads,
                                   config.pipeline_config.smem_size,
                                   config.layout.get_cluster_size()),
-        .grouped_layout = masked_m.data_ptr(),
+        .grouped_layout = masked_m.mutable_data_ptr(),
         .tensor_map_a = tensor_map_a,
         .tensor_map_b = tensor_map_b,
         .tensor_map_cd = tensor_map_cd
@@ -254,12 +258,12 @@ static void sm100_m_grouped_bf16_gemm_masked(const torch::Tensor& a,
     SM100BF16GemmRuntime::launch(runtime, args);
 }
 
-static void sm100_bf16_k_grouped_gemm(const torch::Tensor& a,
-                                      const torch::Tensor& b,
-                                      const std::optional<torch::Tensor>& c,
-                                      const torch::Tensor& d,
+static void sm100_bf16_k_grouped_gemm(const torch::stable::Tensor& a,
+                                      const torch::stable::Tensor& b,
+                                      const std::optional<torch::stable::Tensor>& c,
+                                      const torch::stable::Tensor& d,
                                       const int& m, const int& n,
-                                      const torch::Tensor& grouped_layout,
+                                      const torch::stable::Tensor& grouped_layout,
                                       const cute::UMMA::Major& major_a, const cute::UMMA::Major& major_b,
                                       const std::string& compiled_dims,
                                       const bool& use_psum_layout) {
@@ -307,7 +311,7 @@ static void sm100_bf16_k_grouped_gemm(const torch::Tensor& a,
         .launch_args = LaunchArgs(config.launch_config.num_sms, config.launch_config.num_threads,
                                   config.pipeline_config.smem_size,
                                   config.layout.get_cluster_size()),
-        .grouped_layout = grouped_layout.data_ptr(),
+        .grouped_layout = grouped_layout.mutable_data_ptr(),
         .tensor_map_a = tensor_map_a,
         .tensor_map_b = tensor_map_b,
         .tensor_map_cd = tensor_map_cd
@@ -317,9 +321,9 @@ static void sm100_bf16_k_grouped_gemm(const torch::Tensor& a,
     SM100BF16GemmRuntime::launch(runtime, args);
 }
 
-static void sm100_bf16_bhr_hdr_bhd(const torch::Tensor& tensor_a,
-                                   const torch::Tensor& tensor_b,
-                                   const torch::Tensor& tensor_d,
+static void sm100_bf16_bhr_hdr_bhd(const torch::stable::Tensor& tensor_a,
+                                   const torch::stable::Tensor& tensor_b,
+                                   const torch::stable::Tensor& tensor_d,
                                    const int& b, const int& h, const int& r, const int& d,
                                    const std::string& compiled_dims = "nk") {
     const auto desc = GemmDesc {
@@ -365,9 +369,9 @@ static void sm100_bf16_bhr_hdr_bhd(const torch::Tensor& tensor_a,
     SM100BF16GemmRuntime::launch(runtime, args);
 }
 
-static void sm100_bf16_bhd_hdr_bhr(const torch::Tensor& tensor_a,
-                                   const torch::Tensor& tensor_b,
-                                   const torch::Tensor& tensor_d,
+static void sm100_bf16_bhd_hdr_bhr(const torch::stable::Tensor& tensor_a,
+                                   const torch::stable::Tensor& tensor_b,
+                                   const torch::stable::Tensor& tensor_d,
                                    const int& b, const int& h, const int& r, const int& d,
                                    const std::string& compiled_dims = "nk") {
     const auto desc = GemmDesc {

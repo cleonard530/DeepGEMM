@@ -7,7 +7,7 @@
 #include "../jit/device_runtime.hpp"
 #include "../jit_kernels/heuristics/runtime.hpp"
 
-#include <torch/library.h>
+#include <torch/csrc/stable/library.h>
 
 namespace deep_gemm::torch_registration {
 

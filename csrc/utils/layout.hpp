@@ -1,7 +1,11 @@
 #pragma once
 
 #include <cute/arch/mma_sm100_umma.hpp>
-#include <torch/all.h>
+#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/accelerator.h>
+#include <torch/headeronly/core/ScalarType.h>
+#include <torch/csrc/stable/device.h>
 
 #include "math.hpp"
 #include "exception.hpp"
@@ -10,7 +14,7 @@
 namespace deep_gemm {
 
 // Major-ness stuffs
-static void major_check(const torch::Tensor& t) {
+static void major_check(const torch::stable::Tensor& t) {
     const auto dim = t.dim();
     DG_HOST_ASSERT(dim == 2 or dim == 3);
     if (dim == 3)
@@ -18,12 +22,12 @@ static void major_check(const torch::Tensor& t) {
     DG_HOST_ASSERT(t.stride(-2) == 1 or t.stride(-1) == 1);
 }
 
-static cute::UMMA::Major get_major_type_ab(const torch::Tensor& t) {
+static cute::UMMA::Major get_major_type_ab(const torch::stable::Tensor& t) {
     major_check(t);
     return t.stride(-1) == 1 ? cute::UMMA::Major::K : cute::UMMA::Major::MN;
 }
 
-static void check_major_type_cd(const torch::Tensor& t) {
+static void check_major_type_cd(const torch::stable::Tensor& t) {
     // NOTES: the library only supports row-major output layouts
     major_check(t);
     DG_HOST_ASSERT(t.stride(-1) == 1);
@@ -35,35 +39,35 @@ static bool fp8_requires_k_major() {
 
 // Tensor utils
 template <int N>
-static auto get_shape(const torch::Tensor& t) {
+static auto get_shape(const torch::stable::Tensor& t) {
     DG_HOST_ASSERT(t.is_cuda());
     DG_HOST_ASSERT(t.dim() == N);
     return [&t] <size_t... Is> (std::index_sequence<Is...>) {
-        return std::make_tuple(static_cast<int>(t.sizes()[Is])...);
+        return std::make_tuple(static_cast<int>(t.size(Is))...);
     }(std::make_index_sequence<N>());
 }
 
 // Returns logical shape for packed FP4 by expanding the last dimension.
 template <int N>
-static auto get_logical_shape(const torch::Tensor& t) {
+static auto get_logical_shape(const torch::stable::Tensor& t) {
     auto shape = get_shape<N>(t);
     if (t.scalar_type() == kPackedFP4)
         std::get<N - 1>(shape) *= 2;
     return shape;
 }
 
-static std::tuple<int, int> check_ab_fp8_fp4(const torch::Tensor& ab, const cute::UMMA::Major& major, const int& arch_major) {
+static std::tuple<int, int> check_ab_fp8_fp4(const torch::stable::Tensor& ab, const cute::UMMA::Major& major, const int& arch_major) {
     auto [mn, k] = get_shape<2>(ab);
-    if (ab.scalar_type() != torch::kFloat8_e4m3fn) {
+    if (ab.scalar_type() != torch::headeronly::ScalarType::Float8_e4m3fn) {
         DG_HOST_ASSERT(ab.scalar_type() == kPackedFP4 and (arch_major == 10 or arch_major == 12));
         major == cute::UMMA::Major::K ? (k *= 2) : (mn *= 2);
     }
     return std::make_tuple(mn, k);
 }
 
-static std::tuple<int, int, int> check_grouped_ab_fp8_fp4(const torch::Tensor& ab, const cute::UMMA::Major& major, const int& arch_major) {
+static std::tuple<int, int, int> check_grouped_ab_fp8_fp4(const torch::stable::Tensor& ab, const cute::UMMA::Major& major, const int& arch_major) {
     auto [num_groups, mn, k] = get_shape<3>(ab);
-    if (ab.scalar_type() != torch::kFloat8_e4m3fn) {
+    if (ab.scalar_type() != torch::headeronly::ScalarType::Float8_e4m3fn) {
         DG_HOST_ASSERT(ab.scalar_type() == kPackedFP4 and (arch_major == 10 or arch_major == 12));
         major == cute::UMMA::Major::K ? (k *= 2) : (mn *= 2);
     }
@@ -75,11 +79,11 @@ static std::tuple<int, int, int>
 get_default_recipe(const torch::ScalarType& sfa_dtype, const torch::ScalarType& sfb_dtype) {
     const auto arch_major = device_runtime->get_arch_major();
     if (arch_major == 9) {
-        DG_HOST_ASSERT(sfa_dtype == torch::kFloat and sfb_dtype == torch::kFloat);
+        DG_HOST_ASSERT(sfa_dtype == torch::headeronly::ScalarType::Float and sfb_dtype == torch::headeronly::ScalarType::Float);
         return {1, 128, 128};
     } else if (arch_major == 10 or arch_major == 12) {
-        DG_HOST_ASSERT(sfb_dtype == torch::kFloat or sfb_dtype == torch::kInt);
-        return sfb_dtype == torch::kFloat ?
+        DG_HOST_ASSERT(sfb_dtype == torch::headeronly::ScalarType::Float or sfb_dtype == torch::headeronly::ScalarType::Int);
+        return sfb_dtype == torch::headeronly::ScalarType::Float ?
             std::make_tuple(1, 128, 128):   // Legacy format
             std::make_tuple(1,   1, 128);   // 1D1D kernels
     }
@@ -87,7 +91,7 @@ get_default_recipe(const torch::ScalarType& sfa_dtype, const torch::ScalarType& 
 }
 
 // SF layouts
-static torch::Tensor check_sf_layout(const torch::Tensor& sf,
+static torch::stable::Tensor check_sf_layout(const torch::stable::Tensor& sf,
                                      const int& mn, const int& k,
                                      const int& gran_mn, const int& gran_k,
                                      const std::optional<int>& num_groups,
@@ -100,12 +104,12 @@ static torch::Tensor check_sf_layout(const torch::Tensor& sf,
 
     // Always do shape checks
     const auto sf_dtype = sf.scalar_type();
-    DG_HOST_ASSERT(sf_dtype == torch::kFloat or sf_dtype == torch::kInt);
+    DG_HOST_ASSERT(sf_dtype == torch::headeronly::ScalarType::Float or sf_dtype == torch::headeronly::ScalarType::Int);
     DG_HOST_ASSERT(sf.dim() == static_cast<int>(num_groups.has_value()) + 2);
     if (num_groups.has_value())
         DG_HOST_ASSERT(sf.size(-3) == num_groups.value());
     DG_HOST_ASSERT(sf.size(-2) == ceil_div(mn, gran_mn));
-    DG_HOST_ASSERT(sf.size(-1) == ceil_div(k, gran_k * (sf_dtype == torch::kFloat ? 1 : 4)));
+    DG_HOST_ASSERT(sf.size(-1) == ceil_div(k, gran_k * (sf_dtype == torch::headeronly::ScalarType::Float ? 1 : 4)));
 
     // TMA stride checks: TMA aligned and MN-major
     if (tma_stride_check) {

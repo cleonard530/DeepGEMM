@@ -1,7 +1,11 @@
 #pragma once
 
 #include <cuda.h>
-#include <torch/all.h>
+#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/accelerator.h>
+#include <torch/headeronly/core/ScalarType.h>
+#include <torch/csrc/stable/device.h>
 
 #include "../heuristics/sm90.hpp"
 #include "../../jit/handle.hpp"
@@ -51,12 +55,12 @@ static std::string to_string(const GemmType& type) {
     DG_HOST_UNREACHABLE("Unknown GEMM type");
 }
 
-static std::string to_string(const at::ScalarType& dtype) {
+static std::string to_string(const torch::headeronly::ScalarType& dtype) {
     switch (dtype) {
-        case torch::kInt:           return "int";
-        case torch::kFloat:         return "float";
-        case torch::kBFloat16:      return "cutlass::bfloat16_t";
-        case torch::kFloat8_e4m3fn: return "cutlass::float_e4m3_t";
+        case torch::headeronly::ScalarType::Int:           return "int";
+        case torch::headeronly::ScalarType::Float:         return "float";
+        case torch::headeronly::ScalarType::BFloat16:      return "cutlass::bfloat16_t";
+        case torch::headeronly::ScalarType::Float8_e4m3fn: return "cutlass::float_e4m3_t";
         case kPackedFP4:            return "cutlass::detail::float_e2m1_unpacksmem_t";
         default: DG_HOST_UNREACHABLE("Unsupported dtype");
     }
@@ -72,18 +76,18 @@ static std::string to_string(const float& v) {
     DG_HOST_UNREACHABLE("NaN input is not supported");
 }
 
-static CUtensorMapDataType aten_dtype_to_tensor_map_dtype(const at::ScalarType& dtype,
+static CUtensorMapDataType aten_dtype_to_tensor_map_dtype(const torch::headeronly::ScalarType& dtype,
                                                           const bool& allow_tf32,
                                                           const bool& fp4_unpacked_smem) {
-    if (allow_tf32 and dtype == torch::kFloat)
+    if (allow_tf32 and dtype == torch::headeronly::ScalarType::Float)
         return CU_TENSOR_MAP_DATA_TYPE_TFLOAT32;
 
     switch (dtype) {
-        case torch::kInt:           return CU_TENSOR_MAP_DATA_TYPE_INT32;
-        case torch::kFloat:         return CU_TENSOR_MAP_DATA_TYPE_FLOAT32;
-        case torch::kBFloat16:      return CU_TENSOR_MAP_DATA_TYPE_BFLOAT16;
-        case torch::kFloat8_e4m3fn: return CU_TENSOR_MAP_DATA_TYPE_UINT8;
-        case torch::kFloat16:       return CU_TENSOR_MAP_DATA_TYPE_FLOAT16;
+        case torch::headeronly::ScalarType::Int:           return CU_TENSOR_MAP_DATA_TYPE_INT32;
+        case torch::headeronly::ScalarType::Float:         return CU_TENSOR_MAP_DATA_TYPE_FLOAT32;
+        case torch::headeronly::ScalarType::BFloat16:      return CU_TENSOR_MAP_DATA_TYPE_BFLOAT16;
+        case torch::headeronly::ScalarType::Float8_e4m3fn: return CU_TENSOR_MAP_DATA_TYPE_UINT8;
+        case torch::headeronly::ScalarType::Half:       return CU_TENSOR_MAP_DATA_TYPE_FLOAT16;
 #if CUDA_VERSION >= 12080
         case kPackedFP4:            return fp4_unpacked_smem ? CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN16B
                                                              : CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN8B;
@@ -111,7 +115,7 @@ static CUtensorMapSwizzle mode_into_tensor_map_swizzle(const int& mode, const in
     }
 }
 
-static CUtensorMap make_tma_2d_desc(const torch::Tensor& t,
+static CUtensorMap make_tma_2d_desc(const torch::stable::Tensor& t,
                                     int gmem_inner_dim, int gmem_outer_dim,
                                     int smem_inner_dim, int smem_outer_dim,
                                     const int& gmem_outer_stride,
@@ -140,17 +144,17 @@ static CUtensorMap make_tma_2d_desc(const torch::Tensor& t,
         printf("Making TMA desc: global memory: %d %d, shared memory: %d %d, outer stride: %d, swizzle: %d (base: %d), elem size: %d, pointer: %llu\n",
                gmem_inner_dim, gmem_outer_dim, smem_inner_dim, smem_outer_dim,
                gmem_outer_stride, swizzle_mode, swizzle_base, elem_size,
-               reinterpret_cast<unsigned long long>(t.data_ptr()));
+               reinterpret_cast<unsigned long long>(t.const_data_ptr()));
     }
     DG_CUDA_DRIVER_CHECK(lazy_cuTensorMapEncodeTiled(
         &tensor_map, aten_dtype_to_tensor_map_dtype(t.scalar_type(), allow_tf32, fp4_unpacked_smem),
-        2, t.data_ptr(), gmem_dims, gmem_strides, smem_dims, elem_strides,
+        2, t.const_data_ptr(), gmem_dims, gmem_strides, smem_dims, elem_strides,
         CU_TENSOR_MAP_INTERLEAVE_NONE, mode_into_tensor_map_swizzle(swizzle_mode, swizzle_base),
         CU_TENSOR_MAP_L2_PROMOTION_L2_256B, CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE));
     return tensor_map;
 }
 
-static CUtensorMap make_tma_3d_desc(const torch::Tensor& t,
+static CUtensorMap make_tma_3d_desc(const torch::stable::Tensor& t,
                                     int gmem_dim_0, int gmem_dim_1, int gmem_dim_2,
                                     int smem_dim_0, int smem_dim_1, int smem_dim_2,
                                     const int& gmem_stride_0, const int& gmem_stride_1,
@@ -182,14 +186,14 @@ static CUtensorMap make_tma_3d_desc(const torch::Tensor& t,
     }
     DG_CUDA_DRIVER_CHECK(lazy_cuTensorMapEncodeTiled(
         &tensor_map, aten_dtype_to_tensor_map_dtype(t.scalar_type(), allow_tf32, fp4_unpacked_smem),
-        3, t.data_ptr(), gmem_dims, gmem_strides, smem_dims, elem_strides,
+        3, t.const_data_ptr(), gmem_dims, gmem_strides, smem_dims, elem_strides,
         CU_TENSOR_MAP_INTERLEAVE_NONE, mode_into_tensor_map_swizzle(swizzle_mode, swizzle_base),
         CU_TENSOR_MAP_L2_PROMOTION_L2_256B, CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE));
     return tensor_map;
 }
 
 static CUtensorMap make_tma_a_desc(const cute::UMMA::Major& major,
-                                   const torch::Tensor& t,
+                                   const torch::stable::Tensor& t,
                                    const int& shape_m, const int& shape_k,
                                    const int& block_m, const int& block_k,
                                    const int& outer_stride,
@@ -210,7 +214,7 @@ static CUtensorMap make_tma_a_desc(const cute::UMMA::Major& major,
 }
 
 static CUtensorMap make_tma_b_desc(const cute::UMMA::Major& major,
-                                   const torch::Tensor& t,
+                                   const torch::stable::Tensor& t,
                                    const int& shape_n, const int& shape_k,
                                    const int& block_n, const int& block_k,
                                    const int& outer_stride,
@@ -230,7 +234,7 @@ static CUtensorMap make_tma_b_desc(const cute::UMMA::Major& major,
                             allow_tf32, fp4_unpacked_smem);
 }
 
-static CUtensorMap make_tma_cd_desc(const torch::Tensor& t,
+static CUtensorMap make_tma_cd_desc(const torch::stable::Tensor& t,
                                     const int& shape_m, const int& shape_n,
                                     const int& block_m, const int& block_n,
                                     const int& outer_stride,
@@ -248,7 +252,7 @@ static CUtensorMap make_tma_cd_desc(const torch::Tensor& t,
 }
 
 static CUtensorMap make_tma_sf_desc(const cute::UMMA::Major& major,
-                                    const torch::Tensor& t,
+                                    const torch::stable::Tensor& t,
                                     int shape_mn, int shape_k,
                                     const int& block_mn, const int& gran_k,
                                     const int& num_groups,
@@ -262,7 +266,7 @@ static CUtensorMap make_tma_sf_desc(const cute::UMMA::Major& major,
 
     shape_mn = get_tma_aligned_size(shape_mn, static_cast<int>(t.element_size()));
     return make_tma_2d_desc(t,
-                            shape_mn, ceil_div(shape_k, gran_k * (t.scalar_type() == torch::kFloat ? 1 : 4)) * num_groups,
+                            shape_mn, ceil_div(shape_k, gran_k * (t.scalar_type() == torch::headeronly::ScalarType::Float ? 1 : 4)) * num_groups,
                             block_mn, smem_outer_dim,
                             shape_mn,
                             swizzle_mode, swizzle_base,

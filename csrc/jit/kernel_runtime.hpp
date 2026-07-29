@@ -138,7 +138,9 @@ public:
     template <typename Args>
     static void launch(const std::shared_ptr<KernelRuntime>& kernel_runtime, const Args& args) {
         const auto kernel = kernel_runtime->kernel;
-        const auto stream = at::cuda::getCurrentCUDAStream();
+        StreamHandle stream_handle = nullptr;
+        aoti_torch_get_current_stream(-1, &stream_handle);
+        const cudaStream_t stream = reinterpret_cast<cudaStream_t>(stream_handle);
         LaunchArgs launch_args = args.launch_args;
 
         // Allow runtime override from Python.

@@ -18,7 +18,7 @@ public:
         int* cu_seq_len_k_start;
         int* cu_seq_len_k_end;
         void* logits;
-        at::ScalarType logits_dtype;
+        torch::headeronly::ScalarType logits_dtype;
 
         int block_kv;
         int num_warps;
@@ -48,9 +48,9 @@ static void __instantiate_kernel() {{
     }
 };
 
-static void smxx_clean_logits(const torch::Tensor& logits,
-                              const std::optional<torch::Tensor>& cu_seq_len_k_start,
-                              const torch::Tensor& cu_seq_len_k_end,
+static void smxx_clean_logits(const torch::stable::Tensor& logits,
+                              const std::optional<torch::stable::Tensor>& cu_seq_len_k_start,
+                              const torch::stable::Tensor& cu_seq_len_k_end,
                               const int& next_n,
                               const int& seq_len, const int& seq_len_kv,
                               const uint64_t &stride_logits) {
@@ -64,9 +64,9 @@ static void smxx_clean_logits(const torch::Tensor& logits,
         .seq_len = seq_len,
         .seq_len_kv = seq_len_kv,
         .stride_logits = stride_logits,
-        .cu_seq_len_k_start = cu_seq_len_k_start.has_value() ? cu_seq_len_k_start.value().data_ptr<int>() : nullptr,
-        .cu_seq_len_k_end = cu_seq_len_k_end.data_ptr<int>(),
-        .logits = logits.data_ptr(),
+        .cu_seq_len_k_start = cu_seq_len_k_start.has_value() ? cu_seq_len_k_start.value().mutable_data_ptr<int>() : nullptr,
+        .cu_seq_len_k_end = cu_seq_len_k_end.mutable_data_ptr<int>(),
+        .logits = logits.mutable_data_ptr(),
         .logits_dtype = logits.scalar_type(),
         .block_kv = block_kv,
         .num_warps = num_warps,

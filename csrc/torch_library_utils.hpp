@@ -10,7 +10,7 @@
 namespace deep_gemm::torch_utils {
 
 inline std::optional<std::tuple<int, int, int>> list_to_recipe3(
-    const c10::optional<std::vector<int64_t>>& recipe) {
+    const std::optional<std::vector<int64_t>>& recipe) {
     if (not recipe.has_value() or recipe->empty()) {
         return std::nullopt;
     }
@@ -21,7 +21,7 @@ inline std::optional<std::tuple<int, int, int>> list_to_recipe3(
 }
 
 inline std::optional<std::tuple<int, int>> list_to_recipe2(
-    const c10::optional<std::vector<int64_t>>& recipe) {
+    const std::optional<std::vector<int64_t>>& recipe) {
     if (not recipe.has_value() or recipe->empty()) {
         return std::nullopt;
     }
@@ -48,7 +48,7 @@ inline std::tuple<int, int, int> list_to_tuple3(const std::vector<int64_t>& valu
 }
 
 inline std::optional<std::vector<int>> list_to_optional_vector_int(
-    const c10::optional<std::vector<int64_t>>& values) {
+    const std::optional<std::vector<int64_t>>& values) {
     if (not values.has_value()) {
         return std::nullopt;
     }

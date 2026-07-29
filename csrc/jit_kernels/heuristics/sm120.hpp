@@ -101,7 +101,7 @@ struct SM120ArchSpec {
         return candidates;
     }
 
-    static int get_smem_bytes_per_k(const at::ScalarType& dtype, int block_k) {
+    static int get_smem_bytes_per_k(const torch::headeronly::ScalarType& dtype, int block_k) {
         return (dtype == kPackedFP4) ? (block_k / 2) : (block_k * static_cast<int>(c10::elementSize(dtype)));
     }
 

@@ -1,7 +1,8 @@
 #pragma once
 
 #include <cublasLt.h>
-#include <ATen/cuda/CUDAContext.h>
+#include <torch/csrc/stable/accelerator.h>
+#include <cuda_runtime.h>
 #include <ATen/cuda/CUDADataType.h>
 #include <cute/arch/mma_sm100_umma.hpp>
 
@@ -31,9 +32,9 @@ static void call_cublaslt_api(const cublasOperation_t& trans_a,
                               const cublasLtMatrixLayout_t& layout_a,
                               const cublasLtMatrixLayout_t& layout_b,
                               const cublasLtMatrixLayout_t& layout_d,
-                              const torch::Tensor& a,
-                              const torch::Tensor& b,
-                              const torch::Tensor& d,
+                              const torch::stable::Tensor& a,
+                              const torch::stable::Tensor& b,
+                              const torch::stable::Tensor& d,
                               const bool& accumulate) {
     cublasComputeType_t compute_type = CUBLAS_COMPUTE_32F_FAST_TF32;
     cudaDataType_t scale_type = CUDA_R_32F;
@@ -52,15 +53,17 @@ static void call_cublaslt_api(const cublasOperation_t& trans_a,
 
 #if DG_FP8_COMPATIBLE and DG_CUBLASLT_ADVANCED_FEATURES_COMPATIBLE
     bool fp8_fast_accumulate = false;
-    if (a.scalar_type() == torch::kFloat8_e4m3fn)
+    if (a.scalar_type() == torch::headeronly::ScalarType::Float8_e4m3fn)
         DG_CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(desc, CUBLASLT_MATMUL_DESC_FAST_ACCUM, &fp8_fast_accumulate, sizeof(fp8_fast_accumulate)));
 #endif
 
     // Get cuBLASLt handle, workspace, and stream
     const auto handle = device_runtime->get_cublaslt_handle();
     const auto workspace = device_runtime->get_cublaslt_workspace();
-    const auto workspace_bytes = workspace.nbytes();
-    const auto stream = at::cuda::getCurrentCUDAStream();
+    const auto workspace_bytes = workspace.numel() * workspace.element_size();
+    StreamHandle stream_handle = nullptr;
+    aoti_torch_get_current_stream(-1, &stream_handle);
+    const cudaStream_t stream = reinterpret_cast<cudaStream_t>(stream_handle);
 
     // Algorithm selection
     cublasLtMatmulPreference_t pref;
@@ -81,13 +84,13 @@ static void call_cublaslt_api(const cublasOperation_t& trans_a,
     DG_CUBLASLT_CHECK(cublasLtMatmul(handle,                                // Light handle
                                      desc,                                  // Operation description
                                      &alpha,                                // Alpha
-                                     b.data_ptr(), layout_a,                // A
-                                     a.data_ptr(), layout_b,                // B
+                                     b.const_data_ptr(), layout_a,                // A
+                                     a.const_data_ptr(), layout_b,                // B
                                      &beta,                                 // Beta
-                                     d.data_ptr(), layout_d,                // C
-                                     d.data_ptr(), layout_d,                // D
+                                     d.const_data_ptr(), layout_d,                // C
+                                     d.mutable_data_ptr(), layout_d,                // D
                                      &heuristic.algo,                       // Algorithm
-                                     workspace.data_ptr(), workspace_bytes, // Workspace
+                                     workspace.mutable_data_ptr(), workspace_bytes, // Workspace
                                      stream));                              // Stream
 
     // Free memory
@@ -98,8 +101,8 @@ static void call_cublaslt_api(const cublasOperation_t& trans_a,
     DG_CUBLASLT_CHECK(cublasLtMatmulDescDestroy(desc));
 }
 
-static void cublaslt_gemm(const torch::Tensor& lhs, const torch::Tensor& rhs,
-                          const torch::Tensor& out,
+static void cublaslt_gemm(const torch::stable::Tensor& lhs, const torch::stable::Tensor& rhs,
+                          const torch::stable::Tensor& out,
                           const int& m, const int& n, const int& k,
                           const cute::UMMA::Major& a_major, const cute::UMMA::Major& b_major,
                           const bool& accumulate) {
@@ -119,7 +122,7 @@ static void cublaslt_gemm(const torch::Tensor& lhs, const torch::Tensor& rhs,
     call_cublaslt_api(trans_a, trans_b, layout_a, layout_b, layout_d, lhs, rhs, out, accumulate);
 }
 
-static void cublaslt_bhr_hdr_bhd(const torch::Tensor& lhs, const torch::Tensor& rhs, const torch::Tensor& out,
+static void cublaslt_bhr_hdr_bhd(const torch::stable::Tensor& lhs, const torch::stable::Tensor& rhs, const torch::stable::Tensor& out,
                                  const int& b, const int& h, const int& r, const int& d) {
     const auto m = d, n = b, k = r;
     const auto trans_a = CUBLAS_OP_T;
@@ -134,7 +137,7 @@ static void cublaslt_bhr_hdr_bhd(const torch::Tensor& lhs, const torch::Tensor& 
 }
 
 
-static void cublaslt_bhd_hdr_bhr(const torch::Tensor& lhs, const torch::Tensor& rhs, const torch::Tensor& out,
+static void cublaslt_bhd_hdr_bhr(const torch::stable::Tensor& lhs, const torch::stable::Tensor& rhs, const torch::stable::Tensor& out,
                                  const int& b, const int& h, const int& r, const int& d) {
     const auto m = r, n = b, k = d;
     const auto trans_a = CUBLAS_OP_N;

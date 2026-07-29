@@ -1,6 +1,10 @@
 #pragma once
 
-#include <torch/all.h>
+#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/accelerator.h>
+#include <torch/headeronly/core/ScalarType.h>
+#include <torch/csrc/stable/device.h>
 
 #include "../../jit/compiler.hpp"
 #include "../../jit/device_runtime.hpp"
@@ -59,9 +63,9 @@ static void __instantiate_kernel() {{
 };
 
 
-static void sm90_bmn_bnk_mn_gemm(const torch::Tensor &a,
-                                 const torch::Tensor &b,
-                                 const torch::Tensor &d,
+static void sm90_bmn_bnk_mn_gemm(const torch::stable::Tensor &a,
+                                 const torch::stable::Tensor &b,
+                                 const torch::stable::Tensor &d,
                                  const int &s, const int &m, const int &n, const int &k) {
     constexpr int block_m = 128;
     constexpr int block_n = 128;
@@ -121,7 +125,7 @@ static void sm90_bmn_bnk_mn_gemm(const torch::Tensor &a,
         .launch_args = LaunchArgs(num_mn_blocks * ceil_div(num_sk_blocks, split_factor), num_tma_threads + num_math_threads, smem_size),
         .tensor_map_a = tensor_map_a,
         .tensor_map_b = tensor_map_b,
-        .d = d.data_ptr<float>()
+        .d = d.mutable_data_ptr<float>()
     };
     const auto code = SM90BmkBnkMnRuntime::generate(args);
     const auto runtime = compiler->build("sm90_bmn_bnk_mn_gemm", code);

@@ -1,6 +1,10 @@
 #pragma once
 
-#include <torch/all.h>
+#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/accelerator.h>
+#include <torch/headeronly/core/ScalarType.h>
+#include <torch/csrc/stable/device.h>
 
 #include "../../jit/compiler.hpp"
 #include "../../jit/device_runtime.hpp"
@@ -147,7 +151,7 @@ static void __instantiate_kernel() {{
     }
 };
 
-static void sm120_split_k_reduce(const torch::Tensor& workspace, const torch::Tensor& d,
+static void sm120_split_k_reduce(const torch::stable::Tensor& workspace, const torch::stable::Tensor& d,
                                   const int& m, const int& n, const int& split_k,
                                   const int stride_cd_m, const int stride_cd_n) {
     const int total = m * n;
@@ -158,7 +162,7 @@ static void sm120_split_k_reduce(const torch::Tensor& workspace, const torch::Te
         .gemm_type = GemmType::Normal,
         .kernel_type = KernelType::KernelNoSF,
         .m = m, .n = n, .k = 0, .num_groups = 1,
-        .a_dtype = torch::kFloat, .b_dtype = torch::kFloat,
+        .a_dtype = torch::headeronly::ScalarType::Float, .b_dtype = torch::headeronly::ScalarType::Float,
         .cd_dtype = d.scalar_type(),
         .major_a = cute::UMMA::Major::K, .major_b = cute::UMMA::Major::K,
         .with_accumulation = false,
@@ -175,18 +179,18 @@ static void sm120_split_k_reduce(const torch::Tensor& workspace, const torch::Te
         .launch_args = LaunchArgs(blocks, threads, 0, 0),
         .stride_cd_m = stride_cd_m,
         .stride_cd_n = stride_cd_n,
-        .gmem_d = d.data_ptr(),
-        .workspace = workspace.data_ptr(),
+        .gmem_d = d.mutable_data_ptr(),
+        .workspace = workspace.mutable_data_ptr(),
     };
     const auto code = SM120SplitKReduceRuntime::generate(args);
     const auto runtime = compiler->build("sm120_split_k_reduce", code);
     SM120SplitKReduceRuntime::launch(runtime, args);
 }
 
-static void sm120_fp8_fp4_gemm_1d1d(const torch::Tensor& a, const torch::Tensor& sfa,
-                                    const torch::Tensor& b, const torch::Tensor& sfb,
-                                    const std::optional<torch::Tensor>& c,
-                                    const torch::Tensor& d,
+static void sm120_fp8_fp4_gemm_1d1d(const torch::stable::Tensor& a, const torch::stable::Tensor& sfa,
+                                    const torch::stable::Tensor& b, const torch::stable::Tensor& sfb,
+                                    const std::optional<torch::stable::Tensor>& c,
+                                    const torch::stable::Tensor& d,
                                     const int& m, const int& n, const int& k,
                                     const int& gran_k_a, const int& gran_k_b,
                                     const cute::UMMA::Major& major_a, const cute::UMMA::Major& major_b,
@@ -247,9 +251,9 @@ static void sm120_fp8_fp4_gemm_1d1d(const torch::Tensor& a, const torch::Tensor&
                                                 config.storage_config.swizzle_cd_mode);
 
     const int split_k = config.split_k_factor;
-    torch::Tensor workspace;
+    torch::stable::Tensor workspace;
     if (split_k > 1)
-        workspace = torch::empty({split_k, m, n}, d.options().dtype(torch::kFloat));
+        workspace = torch::stable::empty({split_k, m, n}, d.options().dtype(torch::headeronly::ScalarType::Float));
 
     const SM120FP8FP4Gemm1D1DRuntime::Args args = {
         .gemm_desc = desc,
@@ -267,11 +271,11 @@ static void sm120_fp8_fp4_gemm_1d1d(const torch::Tensor& a, const torch::Tensor&
         .stride_cd_m = swap_ab ? static_cast<int>(d.stride(-1)) : d_stride,
         .stride_cd_n = swap_ab ? static_cast<int>(d.stride(-2)) : 0,
         .stride_cd_batch = 0,
-        .gmem_d = d.data_ptr(),
-        .gmem_c = c.has_value() ? cd.data_ptr() : nullptr,
+        .gmem_d = d.mutable_data_ptr(),
+        .gmem_c = c.has_value() ? cd.mutable_data_ptr() : nullptr,
         .gmem_a_ptr = nullptr,
         .gmem_b_ptr = nullptr,
-        .gmem_workspace = split_k > 1 ? workspace.data_ptr() : nullptr,
+        .gmem_workspace = split_k > 1 ? workspace.mutable_data_ptr() : nullptr,
         .grouped_layout = nullptr,
         .tensor_map_buffer = nullptr,
         .tensor_map_a = tensor_map_a,
@@ -292,13 +296,13 @@ static void sm120_fp8_fp4_gemm_1d1d(const torch::Tensor& a, const torch::Tensor&
     }
 }
 
-static void sm120_k_grouped_fp8_fp4_gemm_1d1d(const torch::Tensor& a, const torch::Tensor& sfa,
-                                               const torch::Tensor& b, const torch::Tensor& sfb,
-                                               const std::optional<torch::Tensor>& c,
-                                               const torch::Tensor& d,
+static void sm120_k_grouped_fp8_fp4_gemm_1d1d(const torch::stable::Tensor& a, const torch::stable::Tensor& sfa,
+                                               const torch::stable::Tensor& b, const torch::stable::Tensor& sfb,
+                                               const std::optional<torch::stable::Tensor>& c,
+                                               const torch::stable::Tensor& d,
                                                const int& m, const int& n,
-                                               const std::vector<int>& ks, const torch::Tensor& ks_tensor,
-                                               const torch::Tensor& tensor_map_buffer,
+                                               const std::vector<int>& ks, const torch::stable::Tensor& ks_tensor,
+                                               const torch::stable::Tensor& tensor_map_buffer,
                                                const int& gran_k_a, const int& gran_k_b,
                                                const cute::UMMA::Major& major_a, const cute::UMMA::Major& major_b,
                                                const std::string& compiled_dims,
@@ -382,13 +386,13 @@ static void sm120_k_grouped_fp8_fp4_gemm_1d1d(const torch::Tensor& a, const torc
         .stride_cd_m = n,
         .stride_cd_n = 0,
         .stride_cd_batch = 0,
-        .gmem_d = d.data_ptr(),
-        .gmem_c = cd.data_ptr(),
-        .gmem_a_ptr = a.data_ptr(),
-        .gmem_b_ptr = b.data_ptr(),
+        .gmem_d = d.mutable_data_ptr(),
+        .gmem_c = cd.mutable_data_ptr(),
+        .gmem_a_ptr = a.mutable_data_ptr(),
+        .gmem_b_ptr = b.mutable_data_ptr(),
         .gmem_workspace = nullptr,
-        .grouped_layout = ks_tensor.data_ptr(),
-        .tensor_map_buffer = tensor_map_buffer.data_ptr(),
+        .grouped_layout = ks_tensor.mutable_data_ptr(),
+        .tensor_map_buffer = tensor_map_buffer.mutable_data_ptr(),
         .tensor_map_a = tensor_map_a,
         .tensor_map_b = tensor_map_b,
         .tensor_map_sfa = tensor_map_sfa,
@@ -400,10 +404,10 @@ static void sm120_k_grouped_fp8_fp4_gemm_1d1d(const torch::Tensor& a, const torc
     SM120FP8FP4Gemm1D1DRuntime::launch(runtime, args);
 }
 
-static void sm120_m_grouped_fp8_fp4_gemm_contiguous_1d1d(const torch::Tensor& a, const torch::Tensor& sfa,
-                                                         const torch::Tensor& b, const torch::Tensor& sfb,
-                                                         const torch::Tensor& d,
-                                                         const torch::Tensor& grouped_layout,
+static void sm120_m_grouped_fp8_fp4_gemm_contiguous_1d1d(const torch::stable::Tensor& a, const torch::stable::Tensor& sfa,
+                                                         const torch::stable::Tensor& b, const torch::stable::Tensor& sfb,
+                                                         const torch::stable::Tensor& d,
+                                                         const torch::stable::Tensor& grouped_layout,
                                                          const int& num_groups, const int& m, const int& n, const int& k,
                                                          const int& gran_k_a, const int& gran_k_b,
                                                          const cute::UMMA::Major& major_a, const cute::UMMA::Major& major_b,
@@ -481,12 +485,12 @@ static void sm120_m_grouped_fp8_fp4_gemm_contiguous_1d1d(const torch::Tensor& a,
         .stride_cd_m = n,
         .stride_cd_n = 0,
         .stride_cd_batch = 0,
-        .gmem_d = d.data_ptr(),
+        .gmem_d = d.mutable_data_ptr(),
         .gmem_c = nullptr,
         .gmem_a_ptr = nullptr,
         .gmem_b_ptr = nullptr,
         .gmem_workspace = nullptr,
-        .grouped_layout = grouped_layout.data_ptr(),
+        .grouped_layout = grouped_layout.mutable_data_ptr(),
         .tensor_map_buffer = nullptr,
         .tensor_map_a = tensor_map_a,
         .tensor_map_b = tensor_map_b,
@@ -499,10 +503,10 @@ static void sm120_m_grouped_fp8_fp4_gemm_contiguous_1d1d(const torch::Tensor& a,
     SM120FP8FP4Gemm1D1DRuntime::launch(runtime, args);
 }
 
-static void sm120_m_grouped_fp8_fp4_gemm_masked_1d1d(const torch::Tensor& a, const torch::Tensor& sfa,
-                                                     const torch::Tensor& b, const torch::Tensor& sfb,
-                                                     const torch::Tensor& d,
-                                                     const torch::Tensor& masked_m,
+static void sm120_m_grouped_fp8_fp4_gemm_masked_1d1d(const torch::stable::Tensor& a, const torch::stable::Tensor& sfa,
+                                                     const torch::stable::Tensor& b, const torch::stable::Tensor& sfb,
+                                                     const torch::stable::Tensor& d,
+                                                     const torch::stable::Tensor& masked_m,
                                                      const int& num_groups, const int& m, const int& n, const int& k,
                                                      const int& expected_m,
                                                      const int& gran_k_a, const int& gran_k_b,
@@ -571,12 +575,12 @@ static void sm120_m_grouped_fp8_fp4_gemm_masked_1d1d(const torch::Tensor& a, con
         .stride_cd_m = n,
         .stride_cd_n = 0,
         .stride_cd_batch = 0,
-        .gmem_d = d.data_ptr(),
+        .gmem_d = d.mutable_data_ptr(),
         .gmem_c = nullptr,
         .gmem_a_ptr = nullptr,
         .gmem_b_ptr = nullptr,
         .gmem_workspace = nullptr,
-        .grouped_layout = masked_m.data_ptr(),
+        .grouped_layout = masked_m.mutable_data_ptr(),
         .tensor_map_buffer = nullptr,
         .tensor_map_a = tensor_map_a,
         .tensor_map_b = tensor_map_b,
@@ -589,10 +593,10 @@ static void sm120_m_grouped_fp8_fp4_gemm_masked_1d1d(const torch::Tensor& a, con
     SM120FP8FP4Gemm1D1DRuntime::launch(runtime, args);
 }
 
-static void sm120_fp8_fp4_bmm(const torch::Tensor& a, const torch::Tensor& sfa,
-                              const torch::Tensor& b, const torch::Tensor& sfb,
-                              const std::optional<torch::Tensor>& c,
-                              const torch::Tensor& d,
+static void sm120_fp8_fp4_bmm(const torch::stable::Tensor& a, const torch::stable::Tensor& sfa,
+                              const torch::stable::Tensor& b, const torch::stable::Tensor& sfb,
+                              const std::optional<torch::stable::Tensor>& c,
+                              const torch::stable::Tensor& d,
                               const int& batch_size, const int& m, const int& n, const int& k,
                               const int& gran_k_a, const int& gran_k_b,
                               const cute::UMMA::Major& major_a, const cute::UMMA::Major& major_b,
@@ -661,8 +665,8 @@ static void sm120_fp8_fp4_bmm(const torch::Tensor& a, const torch::Tensor& sfa,
         .stride_cd_m = swap_ab ? static_cast<int>(d.stride(-1)) : static_cast<int>(d.stride(1)),
         .stride_cd_n = swap_ab ? static_cast<int>(d.stride(1)) : 0,
         .stride_cd_batch = static_cast<int>(d.stride(0)),
-        .gmem_d = d.data_ptr(),
-        .gmem_c = c.has_value() ? cd.data_ptr() : nullptr,
+        .gmem_d = d.mutable_data_ptr(),
+        .gmem_c = c.has_value() ? cd.mutable_data_ptr() : nullptr,
         .gmem_a_ptr = nullptr,
         .gmem_b_ptr = nullptr,
         .gmem_workspace = nullptr,

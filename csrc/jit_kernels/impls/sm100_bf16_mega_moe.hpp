@@ -1,6 +1,10 @@
 #pragma once
 
-#include <torch/all.h>
+#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/accelerator.h>
+#include <torch/headeronly/core/ScalarType.h>
+#include <torch/csrc/stable/device.h>
 
 #include "../../jit/compiler.hpp"
 #include "../../jit/kernel_runtime.hpp"
@@ -109,12 +113,12 @@ static void __instantiate_kernel() {{
 };
 
 static void sm100_bf16_mega_moe(
-    const torch::Tensor& y,
-    const torch::Tensor& l1_acts, const torch::Tensor& l2_acts,
-    const torch::Tensor& shared_l1_acts, const torch::Tensor& shared_l2_acts,
-    const torch::Tensor& l1_weights, const torch::Tensor& l2_weights,
-    const torch::Tensor& shared_l1_weights, const torch::Tensor& shared_l2_weights,
-    const std::optional<torch::Tensor> cumulative_local_expert_recv_stats,
+    const torch::stable::Tensor& y,
+    const torch::stable::Tensor& l1_acts, const torch::stable::Tensor& l2_acts,
+    const torch::stable::Tensor& shared_l1_acts, const torch::stable::Tensor& shared_l2_acts,
+    const torch::stable::Tensor& l1_weights, const torch::stable::Tensor& l2_weights,
+    const torch::stable::Tensor& shared_l1_weights, const torch::stable::Tensor& shared_l2_weights,
+    const std::optional<torch::stable::Tensor> cumulative_local_expert_recv_stats,
     const std::vector<int64_t>& sym_buffer_ptrs,
     const int& rank_idx, const int& num_max_tokens_per_rank,
     const int& num_experts_per_rank,
@@ -196,7 +200,7 @@ static void sm100_bf16_mega_moe(
     // Stats can be optional
     int* cumulative_local_expert_recv_stats_ptr = nullptr;
     if (cumulative_local_expert_recv_stats.has_value())
-        cumulative_local_expert_recv_stats_ptr = cumulative_local_expert_recv_stats->data_ptr<int>();
+        cumulative_local_expert_recv_stats_ptr = cumulative_local_expert_recv_stats->mutable_data_ptr<int>();
 
     // Launch
     const auto num_sms = device_runtime->get_num_sms();
@@ -209,7 +213,7 @@ static void sm100_bf16_mega_moe(
         .activation_clamp = activation_clamp,
         .fast_math = fast_math,
         .config = config,
-        .y = y.data_ptr(),
+        .y = y.mutable_data_ptr(),
         .cumulative_local_expert_recv_stats = cumulative_local_expert_recv_stats_ptr,
         .num_tokens = num_tokens,
         .sym_buffer_ptrs = layout::SymBuffer<>(sym_buffer_ptrs, rank_idx),

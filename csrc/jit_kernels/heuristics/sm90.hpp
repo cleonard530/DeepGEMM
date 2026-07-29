@@ -26,7 +26,7 @@ struct SM90ArchSpec {
             if (desc.m <= 32) block_m_candidates.push_back(32);
 
             // BF16 output GEMM supports 256
-            if (desc.cd_dtype != torch::kFloat)
+            if (desc.cd_dtype != torch::headeronly::ScalarType::Float)
                 block_m_candidates.push_back(256);
         } else if (desc.gemm_type == GemmType::MGroupedContiguous or
                    desc.gemm_type == GemmType::MGroupedContiguousWithPsumLayout) {
@@ -40,7 +40,7 @@ struct SM90ArchSpec {
         int step = std::lcm(16, heuristics_runtime->get_block_n_multiple_of());
         int start = step;
         // Avoid bank conflicts for 1D1D kernel FP32 output
-        if (desc.kernel_type == KernelType::Kernel1D1D and desc.cd_dtype == torch::kFloat) {
+        if (desc.kernel_type == KernelType::Kernel1D1D and desc.cd_dtype == torch::headeronly::ScalarType::Float) {
             DG_HOST_ASSERT(desc.major_a == cute::UMMA::Major::K);
             DG_HOST_ASSERT(desc.major_b == cute::UMMA::Major::K);
             start = 24;
@@ -135,7 +135,7 @@ struct SM90ArchSpec {
         const auto swizzle_mode_b = get_swizzle_mode(
             desc.major_b == cute::UMMA::Major::K ? layout.block_k : load_block_n, c10::elementSize(desc.b_dtype));
         // We only enable swizzling for non-FP32 outputs
-        const auto swizzle_mode_cd = desc.cd_dtype != torch::kFloat ?
+        const auto swizzle_mode_cd = desc.cd_dtype != torch::headeronly::ScalarType::Float ?
             get_swizzle_mode(store_block_n, c10::elementSize(desc.cd_dtype)) : 0;
 
         return {
