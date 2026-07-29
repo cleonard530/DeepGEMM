@@ -1,8 +1,11 @@
 #pragma once
 
+#include <vector>
+
 #include "../jit_kernels/heuristics/runtime.hpp"
 #include "../utils/layout.hpp"
 #include "../utils/compatibility.hpp"
+#include "../utils/torch_compat.hpp"
 
 #if DG_TENSORMAP_COMPATIBLE
 #include "../jit_kernels/impls/smxx_layout.hpp"
@@ -51,13 +54,14 @@ static torch::stable::Tensor transform_sf_into_required_layout(const torch::stab
     if (sf.scalar_type() == torch::headeronly::ScalarType::Float and (gran_k == 32 or gran_k == 128) and (arch_major == 10 or arch_major == 12)) {
         DG_HOST_ASSERT(not disable_ue8m0_cast);
         const auto broadcasted = gran_mn == 1 ? sf :
-                                 sf.index_select(-2, torch::arange(mn, at::TensorOptions().device(sf.device())).floor_divide_(gran_mn));
+                                 torch_compat::index_select(sf, -2,
+                                     torch_compat::floor_divide(torch_compat::arange(mn, sf.device()), gran_mn));
         return get_mn_major_tma_aligned_packed_ue8m0_tensor(broadcasted, psum_layout);
     }
 
     // (INT, 1, gran_k) on SM100/SM120: transform to TMA-aligned and MN-major
     if (sf.scalar_type() == torch::headeronly::ScalarType::Int and gran_mn == 1 and (gran_k == 32 or gran_k == 128) and (arch_major == 10 or arch_major == 12))
-        return check_sf_layout(sf, mn, k, gran_mn, gran_k, num_groups, true, false, torch::kInt);
+        return check_sf_layout(sf, mn, k, gran_mn, gran_k, num_groups, true, false, torch::headeronly::ScalarType::Int);
 
     DG_HOST_UNREACHABLE("Unknown SF transformation");
 }
@@ -121,7 +125,7 @@ static torch::stable::Tensor transform_k_grouped_sf_into_required_layout(const t
                 int expected_sf_k = 0;
                 for (const auto k: ks_cpu.value())
                     expected_sf_k += ceil_div(k, gran_k);
-                sf_input = sf_contiguous.size(0) == expected_sf_k ? sf_contiguous : torch::stable::contiguous(sf_contiguous.t());
+                sf_input = sf_contiguous.size(0) == expected_sf_k ? sf_contiguous : torch::stable::contiguous(torch::stable::transpose(sf_contiguous, 0, 1));
             } else {
                 sf_input = sf_contiguous;
             }
@@ -206,11 +210,11 @@ static int64_t get_theoretical_mk_alignment_for_contiguous_layout(
 
 }  // namespace deep_gemm::torch_registration
 
-TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
+STABLE_TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
 #if DG_TENSORMAP_COMPATIBLE
     m.def(
         "transform_sf_into_required_layout(Tensor sf, int mn, int k, int[] recipe, int? num_groups=None, bool? is_sfa=None, bool disable_ue8m0_cast=False, Tensor? psum_layout=None) -> Tensor");
-    m.def("get_tma_aligned_size(int x, int element_size) -> int", TORCH_FN(deep_gemm::torch_registration::get_tma_aligned_size));
+    m.def("get_tma_aligned_size(int x, int element_size) -> int");
     m.def("get_mn_major_tma_aligned_tensor(Tensor sf) -> Tensor");
     m.def(
         "get_mn_major_tma_aligned_packed_ue8m0_tensor(Tensor sf, Tensor? psum_layout=None) -> Tensor");
@@ -218,12 +222,9 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
         "get_k_grouped_mn_major_tma_aligned_packed_ue8m0_tensor(Tensor sf, Tensor grouped_layout, int[]? ks_cpu, int gran_k, int k_alignment, bool use_psum_layout=False) -> Tensor");
 #endif
 
-    m.def("set_mk_alignment_for_contiguous_layout(int new_value) -> ()",
-          TORCH_FN(deep_gemm::torch_registration::set_mk_alignment_for_contiguous_layout));
-    m.def("get_mk_alignment_for_contiguous_layout() -> int",
-          TORCH_FN(deep_gemm::torch_registration::get_mk_alignment_for_contiguous_layout));
-    m.def("get_theoretical_mk_alignment_for_contiguous_layout(int? expected_m=None, int? num_groups=None) -> int",
-          TORCH_FN(deep_gemm::torch_registration::get_theoretical_mk_alignment_for_contiguous_layout));
+    m.def("set_mk_alignment_for_contiguous_layout(int new_value) -> ()");
+    m.def("get_mk_alignment_for_contiguous_layout() -> int");
+    m.def("get_theoretical_mk_alignment_for_contiguous_layout(int? expected_m=None, int? num_groups=None) -> int");
 }
 
 STABLE_TORCH_LIBRARY_IMPL(deep_gemm, CUDA, m) {
@@ -231,12 +232,22 @@ STABLE_TORCH_LIBRARY_IMPL(deep_gemm, CUDA, m) {
 
 #if DG_TENSORMAP_COMPATIBLE
     m.impl("transform_sf_into_required_layout",
-           TORCH_FN(transform_sf_into_required_layout));
+           TORCH_BOX(&transform_sf_into_required_layout));
     m.impl("get_mn_major_tma_aligned_tensor",
-           TORCH_FN(get_mn_major_tma_aligned_tensor));
+           TORCH_BOX(&get_mn_major_tma_aligned_tensor));
     m.impl("get_mn_major_tma_aligned_packed_ue8m0_tensor",
-           TORCH_FN(get_mn_major_tma_aligned_packed_ue8m0_tensor));
+           TORCH_BOX(&get_mn_major_tma_aligned_packed_ue8m0_tensor));
     m.impl("get_k_grouped_mn_major_tma_aligned_packed_ue8m0_tensor",
-           TORCH_FN(get_k_grouped_mn_major_tma_aligned_packed_ue8m0_tensor));
+           TORCH_BOX(&get_k_grouped_mn_major_tma_aligned_packed_ue8m0_tensor));
 #endif
+}
+
+// No Tensor args means no dispatch key set, so register under CompositeImplicitAutograd (the catch-all key).
+STABLE_TORCH_LIBRARY_IMPL(deep_gemm, CompositeImplicitAutograd, m) {
+    using namespace deep_gemm::torch_registration;
+
+    m.impl("get_tma_aligned_size", TORCH_BOX(&get_tma_aligned_size));
+    m.impl("set_mk_alignment_for_contiguous_layout", TORCH_BOX(&set_mk_alignment_for_contiguous_layout));
+    m.impl("get_mk_alignment_for_contiguous_layout", TORCH_BOX(&get_mk_alignment_for_contiguous_layout));
+    m.impl("get_theoretical_mk_alignment_for_contiguous_layout", TORCH_BOX(&get_theoretical_mk_alignment_for_contiguous_layout));
 }

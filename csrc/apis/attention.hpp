@@ -1,6 +1,9 @@
 #pragma once
 
+#include <vector>
+
 #include "../utils/compatibility.hpp"
+#include "../utils/torch_compat.hpp"
 
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
 #include "../jit_kernels/impls/sm90_fp8_gemm_1d1d.hpp"
@@ -170,15 +173,17 @@ static torch::stable::Tensor fp8_fp4_mqa_logits(const std::tuple<torch::stable::
         aligned_seq_len = align(seq_len, block_q * 2);
     }
     // Logits row stride must be 1024-byte aligned
-    const int stride_logits_alignment = 1024 / static_cast<int>(c10::elementSize(logits_dtype));
+    const int stride_logits_alignment = 1024 / static_cast<int>(deep_gemm::torch_compat::element_size(logits_dtype));
     if (max_seqlen_k == 0) {
         stride_logits = align(seq_len_kv + block_kv, stride_logits_alignment);
-        logits = torch::stable::empty({aligned_seq_len, stride_logits}, q_fp.options().dtype(logits_dtype));
-        logits = logits.index({torch::indexing::Slice(0, seq_len), torch::indexing::Slice(0, seq_len_kv)});
+        logits = torch::stable::new_empty(q_fp, {aligned_seq_len, stride_logits}, logits_dtype);
+        auto logits_row_narrowed = torch::stable::narrow(logits, 0, 0, seq_len);
+        logits = torch::stable::narrow(logits_row_narrowed, 1, 0, seq_len_kv);
     } else {
         stride_logits = align(align(max_seqlen_k, block_kv), stride_logits_alignment);
-        logits = torch::stable::empty({aligned_seq_len, stride_logits}, q_fp.options().dtype(logits_dtype));
-        logits = logits.index({torch::indexing::Slice(0, seq_len), torch::indexing::Slice(0, max_seqlen_k)});
+        logits = torch::stable::new_empty(q_fp, {aligned_seq_len, stride_logits}, logits_dtype);
+        auto logits_row_narrowed = torch::stable::narrow(logits, 0, 0, seq_len);
+        logits = torch::stable::narrow(logits_row_narrowed, 1, 0, max_seqlen_k);
         DG_HOST_ASSERT(not clean_logits);
     }
 
@@ -234,7 +239,7 @@ static torch::stable::Tensor get_paged_mqa_logits_metadata(const torch::stable::
     // Create metadata tensor. `num_sms` here is actually the scheduler slot count
     // (= num_clusters on SM90 next_n=4 multicast, = num_sms elsewhere); callers
     // pre-divide.
-    auto schedule_metadata = torch::stable::empty({num_sms + 1, 2}, context_lens.options());
+    auto schedule_metadata = torch::stable::new_empty(context_lens, {num_sms + 1, 2});
 
     // Dispatch implementation
     const auto arch_major = device_runtime->get_arch_major();
@@ -337,13 +342,15 @@ static torch::stable::Tensor fp8_fp4_paged_mqa_logits(const std::tuple<torch::st
         fused_kv_cache.mutable_data_ptr(),
         {num_kv_blocks, block_kv, kv_head_dim},
         {kv_cache_stride_bytes, kv_head_dim, 1},
-        torch::TensorOptions().dtype(is_fp4 ? kPackedFP4 : torch::headeronly::ScalarType::Float8_e4m3fn)
+        fused_kv_cache.device(),
+        is_fp4 ? kPackedFP4 : torch::headeronly::ScalarType::Float8_e4m3fn
     );
     kv_cache_sf = torch::stable::from_blob(
         fused_kv_cache.mutable_data_ptr<uint8_t>() + block_kv * kv_head_dim,
         {num_kv_blocks, block_kv},
         {kv_cache_stride_bytes / sf_bytes, 1},
-        torch::TensorOptions().dtype(is_mx_sf ? torch::headeronly::ScalarType::Int : torch::headeronly::ScalarType::Float)
+        fused_kv_cache.device(),
+        is_mx_sf ? torch::headeronly::ScalarType::Int : torch::headeronly::ScalarType::Float
     );
 
     // Check weights
@@ -391,10 +398,10 @@ static torch::stable::Tensor fp8_fp4_paged_mqa_logits(const std::tuple<torch::st
     const int split_kv = (arch_major == 12) ? 128 : 256;
     DG_HOST_ASSERT(logits_dtype == torch::headeronly::ScalarType::Float or logits_dtype == torch::headeronly::ScalarType::BFloat16);
     // Logits row stride must be 1024-byte aligned
-    const int stride_logits_alignment = 1024 / static_cast<int>(c10::elementSize(logits_dtype));
+    const int stride_logits_alignment = 1024 / static_cast<int>(deep_gemm::torch_compat::element_size(logits_dtype));
     const auto aligned_max_context_len = align(align(max_context_len, split_kv), stride_logits_alignment);
-    auto logits = torch::stable::empty({batch_size * next_n, aligned_max_context_len}, q_fp.options().dtype(logits_dtype));
-    logits = logits.slice(-1, 0, max_context_len);
+    auto logits = torch::stable::new_empty(q_fp, {batch_size * next_n, aligned_max_context_len}, logits_dtype);
+    logits = torch::stable::narrow(logits, 1, 0, max_context_len);
 
     // Dispatch implementation
     if (arch_major == 10) {
@@ -563,7 +570,7 @@ static torch::stable::Tensor fp8_paged_mqa_logits(
 
 }  // namespace deep_gemm::torch_registration
 
-TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
+STABLE_TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
     m.def(
         "fp8_gemm_nt_skip_head_mid(Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, int[3] head_splits, int[3]? recipe=None, str compiled_dims='nk', bool disable_ue8m0_cast=False) -> ()");
@@ -584,11 +591,11 @@ STABLE_TORCH_LIBRARY_IMPL(deep_gemm, CUDA, m) {
     using namespace deep_gemm::torch_registration;
 
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
-    m.impl("fp8_gemm_nt_skip_head_mid", TORCH_FN(fp8_gemm_nt_skip_head_mid));
-    m.impl("fp8_fp4_mqa_logits", TORCH_FN(fp8_fp4_mqa_logits));
-    m.impl("get_paged_mqa_logits_metadata", TORCH_FN(get_paged_mqa_logits_metadata));
-    m.impl("fp8_fp4_paged_mqa_logits", TORCH_FN(fp8_fp4_paged_mqa_logits));
-    m.impl("fp8_mqa_logits", TORCH_FN(fp8_mqa_logits));
-    m.impl("fp8_paged_mqa_logits", TORCH_FN(fp8_paged_mqa_logits));
+    m.impl("fp8_gemm_nt_skip_head_mid", TORCH_BOX(&fp8_gemm_nt_skip_head_mid));
+    m.impl("fp8_fp4_mqa_logits", TORCH_BOX(&fp8_fp4_mqa_logits));
+    m.impl("get_paged_mqa_logits_metadata", TORCH_BOX(&get_paged_mqa_logits_metadata));
+    m.impl("fp8_fp4_paged_mqa_logits", TORCH_BOX(&fp8_fp4_paged_mqa_logits));
+    m.impl("fp8_mqa_logits", TORCH_BOX(&fp8_mqa_logits));
+    m.impl("fp8_paged_mqa_logits", TORCH_BOX(&fp8_paged_mqa_logits));
 #endif
 }

@@ -12,6 +12,7 @@
 #include "../../utils/format.hpp"
 #include "../../utils/math.hpp"
 #include "../../utils/layout.hpp"
+#include "../../utils/torch_compat.hpp"
 #include "../heuristics/runtime.hpp"
 
 namespace deep_gemm {
@@ -128,9 +129,10 @@ static torch::stable::Tensor get_mn_major_tma_aligned_tensor(const torch::stable
     if ((batched_sf.stride(0) == tma_aligned_mn * sf_k or dim == 2) and batched_sf.stride(1) == 1 and batched_sf.stride(2) == tma_aligned_mn)
         return (dim == 2) ? torch::stable::squeeze(batched_sf, 0) : batched_sf;
 
-    const auto out = torch::empty_strided({num_sf_batches, mn, sf_k},
-                                          {tma_aligned_mn * sf_k, 1, tma_aligned_mn},
-                                          batched_sf.options());
+    // No stable `new_empty_strided`: allocate transposed-shape, then transpose + narrow to `mn`.
+    auto out_storage = torch::stable::new_empty(batched_sf, {num_sf_batches, sf_k, tma_aligned_mn}, batched_sf.scalar_type());
+    auto out_transposed = torch::stable::transpose(out_storage, 1, 2);
+    auto out = torch::stable::narrow(out_transposed, 1, 0, mn);
 
     if (not batched_sf.is_contiguous()) {
         // Fallback to PyTorch's slow copy if not contiguous
@@ -160,34 +162,40 @@ static torch::stable::Tensor get_mn_major_tma_aligned_packed_ue8m0_tensor_torch(
     const auto sf_reshaped = (sf.dim() == 2) ? torch::stable::unsqueeze(sf, 0) : sf;
 
     // First, convert into UE8M0 `uint8_t`
-    const auto ue8m0_tensor = torch::stable::to(torch::stable::view(sf_reshaped, torch::headeronly::ScalarType::Int).bitwise_right_shift(23), torch::headeronly::ScalarType::Byte);
+    const auto ue8m0_tensor = torch::stable::to(
+        torch_compat::bitwise_right_shift(torch_compat::view_dtype(sf_reshaped, torch::headeronly::ScalarType::Int), 23),
+        torch::headeronly::ScalarType::Byte);
 
     // Second, make padded packed tensors
     const auto [num_sf_batches, mn, k] = get_shape<3>(sf_reshaped);
     const auto aligned_mn = get_tma_aligned_size(mn, 4);
     const auto aligned_k  = align(k, 4);
 
-    const auto options = torch::TensorOptions().device(sf.device()).dtype(torch::headeronly::ScalarType::Byte);
-    auto padded = torch::zeros({num_sf_batches, aligned_mn, aligned_k}, options);
+    auto padded = torch::stable::new_zeros(sf, {num_sf_batches, aligned_mn, aligned_k}, torch::headeronly::ScalarType::Byte);
     // ReSharper disable once CppExpressionWithoutSideEffects
-    torch::stable::copy_(padded.slice(1, 0, mn).slice(2, 0, k), ue8m0_tensor);
-    padded = torch::stable::view(torch::stable::view(torch::stable::view(padded, -1), torch::headeronly::ScalarType::Int), {num_sf_batches, aligned_mn, aligned_k / 4});
+    auto padded_narrow_mn = torch::stable::narrow(padded, 1, 0, mn);
+    auto padded_narrow_mn_k = torch::stable::narrow(padded_narrow_mn, 2, 0, k);
+    torch::stable::copy_(padded_narrow_mn_k, ue8m0_tensor);
+    auto padded_flat = torch::stable::view(padded, -1);
+    auto padded_as_int = torch_compat::view_dtype(padded_flat, torch::headeronly::ScalarType::Int);
+    padded = torch::stable::view(padded_as_int, {num_sf_batches, aligned_mn, aligned_k / 4});
 
-    // Finally, transpose
-    auto out = torch::empty_strided({num_sf_batches, aligned_mn, aligned_k / 4},
-                                    {aligned_mn * (aligned_k / 4), 1, aligned_mn},
-                                    at::TensorOptions().device(sf.device()).dtype(torch::headeronly::ScalarType::Int));
-    out = torch::stable::copy_(out, padded).slice(1, 0, mn);
-    return (sf.dim() == 2) ? torch::stable::squeeze(out, 0) : out;
+    // No stable `new_empty_strided`: allocate transposed-shape, then transpose.
+    auto out_storage = torch::stable::new_empty(sf, {num_sf_batches, aligned_k / 4, aligned_mn}, torch::headeronly::ScalarType::Int);
+    auto out = torch::stable::transpose(out_storage, 1, 2);
+    torch::stable::copy_(out, padded);
+    auto out_narrow = torch::stable::narrow(out, 1, 0, mn);
+    return (sf.dim() == 2) ? torch::stable::squeeze(out_narrow, 0) : out_narrow;
 }
 
 static torch::stable::Tensor get_mn_major_tma_aligned_packed_ue8m0_tensor(const torch::stable::Tensor& sf,
                                                                   const std::optional<torch::stable::Tensor>& psum_layout = std::nullopt) {
     const auto [dim, num_sf_batches, mn, sf_k, tma_aligned_mn, batched_sf] = preprocess_sf(sf);
     const auto packed_sf_k = ceil_div(sf_k, 4);
-    const auto out = torch::empty_strided({num_sf_batches, mn, packed_sf_k},
-                                          {packed_sf_k * tma_aligned_mn, 1, tma_aligned_mn},
-                                          at::TensorOptions().device(batched_sf.device()).dtype(torch::headeronly::ScalarType::Int));
+    // No stable `new_empty_strided`: allocate transposed-shape, then transpose + narrow.
+    auto out_storage = torch::stable::new_empty(batched_sf, {num_sf_batches, packed_sf_k, tma_aligned_mn}, torch::headeronly::ScalarType::Int);
+    auto out_transposed = torch::stable::transpose(out_storage, 1, 2);
+    auto out = torch::stable::narrow(out_transposed, 1, 0, mn);
 
     // PSUM layout (always 2D contiguous) lets the pack kernel skip uninitialized MN gap rows
     const auto use_psum_layout = psum_layout.has_value();
@@ -292,9 +300,9 @@ static torch::stable::Tensor get_k_grouped_mn_major_tma_aligned_packed_ue8m0_ten
         packed_sf_k = (sf_k + num_groups * 3) / 4;
     }
     if (packed_sf_k == 0)
-        return torch::stable::empty({0, mn}, at::TensorOptions().device(sf.device()).dtype(torch::headeronly::ScalarType::Int));
+        return torch::stable::new_empty(sf, {0, mn}, torch::headeronly::ScalarType::Int);
 
-    const auto out = torch::stable::empty({packed_sf_k, mn}, at::TensorOptions().device(sf.device()).dtype(torch::headeronly::ScalarType::Int));
+    const auto out = torch::stable::new_empty(sf, {packed_sf_k, mn}, torch::headeronly::ScalarType::Int);
 
     constexpr int block_mn = 128;
     constexpr int block_packed_sf_k = 16;

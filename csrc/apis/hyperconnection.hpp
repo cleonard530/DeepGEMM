@@ -80,7 +80,7 @@ static void tf32_hc_prenorm_gemm(const torch::stable::Tensor& a, const torch::st
 
 }  // namespace deep_gemm::torch_registration
 
-TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
+STABLE_TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
     m.def(
         "tf32_hc_prenorm_gemm(Tensor a, Tensor b, Tensor(d!) d, Tensor(sqr_sum!) sqr_sum, int? num_splits=None) -> ()");
@@ -91,6 +91,6 @@ STABLE_TORCH_LIBRARY_IMPL(deep_gemm, CUDA, m) {
     using namespace deep_gemm::torch_registration;
 
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
-    m.impl("tf32_hc_prenorm_gemm", TORCH_FN(tf32_hc_prenorm_gemm));
+    m.impl("tf32_hc_prenorm_gemm", TORCH_BOX(&tf32_hc_prenorm_gemm));
 #endif
 }

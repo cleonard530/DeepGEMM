@@ -76,7 +76,7 @@ static std::tuple<int, int, int> check_grouped_ab_fp8_fp4(const torch::stable::T
 
 // Recipe
 static std::tuple<int, int, int>
-get_default_recipe(const torch::ScalarType& sfa_dtype, const torch::ScalarType& sfb_dtype) {
+get_default_recipe(const torch::headeronly::ScalarType& sfa_dtype, const torch::headeronly::ScalarType& sfb_dtype) {
     const auto arch_major = device_runtime->get_arch_major();
     if (arch_major == 9) {
         DG_HOST_ASSERT(sfa_dtype == torch::headeronly::ScalarType::Float and sfb_dtype == torch::headeronly::ScalarType::Float);
@@ -97,7 +97,7 @@ static torch::stable::Tensor check_sf_layout(const torch::stable::Tensor& sf,
                                      const std::optional<int>& num_groups,
                                      const bool& tma_stride_check = false,
                                      const bool& sm90_sfb_check = false,
-                                     const std::optional<torch::ScalarType>& type_check = std::nullopt) {
+                                     const std::optional<torch::headeronly::ScalarType>& type_check = std::nullopt) {
     // Type check
     if (type_check.has_value())
         DG_HOST_ASSERT(sf.scalar_type() == type_check.value());

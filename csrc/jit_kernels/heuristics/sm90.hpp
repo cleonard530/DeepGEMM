@@ -7,6 +7,7 @@
 #include "common.hpp"
 #include "utils.hpp"
 #include "../../utils/exception.hpp"
+#include "../../utils/torch_compat.hpp"
 
 namespace deep_gemm {
 
@@ -131,12 +132,12 @@ struct SM90ArchSpec {
 
         // Decide swizzling by the inner dim
         const auto swizzle_mode_a = get_swizzle_mode(
-            desc.major_a == cute::UMMA::Major::K ? layout.block_k : load_block_m, c10::elementSize(desc.a_dtype));
+            desc.major_a == cute::UMMA::Major::K ? layout.block_k : load_block_m, deep_gemm::torch_compat::element_size(desc.a_dtype));
         const auto swizzle_mode_b = get_swizzle_mode(
-            desc.major_b == cute::UMMA::Major::K ? layout.block_k : load_block_n, c10::elementSize(desc.b_dtype));
+            desc.major_b == cute::UMMA::Major::K ? layout.block_k : load_block_n, deep_gemm::torch_compat::element_size(desc.b_dtype));
         // We only enable swizzling for non-FP32 outputs
         const auto swizzle_mode_cd = desc.cd_dtype != torch::headeronly::ScalarType::Float ?
-            get_swizzle_mode(store_block_n, c10::elementSize(desc.cd_dtype)) : 0;
+            get_swizzle_mode(store_block_n, deep_gemm::torch_compat::element_size(desc.cd_dtype)) : 0;
 
         return {
             load_block_m, load_block_n,
@@ -152,12 +153,12 @@ struct SM90ArchSpec {
         // C/D for TMA stores
         // NOTES: 1024 is for TMA swizzling alignment requirement
         const int smem_cd =
-            align(layout.block_m * layout.block_n * static_cast<int>(c10::elementSize(desc.cd_dtype)), 1024);
+            align(layout.block_m * layout.block_n * static_cast<int>(deep_gemm::torch_compat::element_size(desc.cd_dtype)), 1024);
         const int smem_barriers = kNumMaxStages * 8 * 2;
 
         // Calculate A/B per stages
-        const int smem_a_per_stage = storage_config.load_block_m * layout.block_k * c10::elementSize(desc.a_dtype);
-        const int smem_b_per_stage = storage_config.load_block_n * layout.block_k * c10::elementSize(desc.b_dtype);
+        const int smem_a_per_stage = storage_config.load_block_m * layout.block_k * deep_gemm::torch_compat::element_size(desc.a_dtype);
+        const int smem_b_per_stage = storage_config.load_block_n * layout.block_k * deep_gemm::torch_compat::element_size(desc.b_dtype);
 
         // Calculate SF A/B per stages
         const int smem_sfa_per_stage = desc.kernel_type == KernelType::KernelNoSF ?
@@ -211,8 +212,8 @@ struct SM90ArchSpec {
         const int l2_bandwidth_per_cycle = std::min(64. * desc.num_sms, 8e6 / (1.3e3)); // B/cycle
         const int l1_bandwidth_per_cycle = 128 * desc.num_sms; // B/cycle
         const int wgmma_m = 64;
-        const int elem_size_ab = c10::elementSize(desc.a_dtype);
-        const int elem_size_cd = c10::elementSize(desc.cd_dtype);
+        const int elem_size_ab = deep_gemm::torch_compat::element_size(desc.a_dtype);
+        const int elem_size_cd = deep_gemm::torch_compat::element_size(desc.cd_dtype);
         DG_HOST_ASSERT(desc.a_dtype == desc.b_dtype);
 
         // Data movement per block

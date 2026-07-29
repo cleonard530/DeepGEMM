@@ -253,7 +253,7 @@ static void sm120_fp8_fp4_gemm_1d1d(const torch::stable::Tensor& a, const torch:
     const int split_k = config.split_k_factor;
     torch::stable::Tensor workspace;
     if (split_k > 1)
-        workspace = torch::stable::empty({split_k, m, n}, d.options().dtype(torch::headeronly::ScalarType::Float));
+        workspace = torch::stable::new_empty(d, {split_k, m, n}, torch::headeronly::ScalarType::Float);
 
     const SM120FP8FP4Gemm1D1DRuntime::Args args = {
         .gemm_desc = desc,

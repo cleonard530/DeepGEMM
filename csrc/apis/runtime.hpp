@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #if DG_TENSORMAP_COMPATIBLE
 #include "../jit/compiler.hpp"
 #include "../jit/kernel_runtime.hpp"
@@ -61,14 +63,29 @@ static void init(const std::string& library_root_path,
 
 }  // namespace deep_gemm::torch_registration
 
-TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
-    m.def("set_num_sms(int new_num_sms) -> ()", TORCH_FN(deep_gemm::torch_registration::set_num_sms));
-    m.def("get_num_sms() -> int", TORCH_FN(deep_gemm::torch_registration::get_num_sms));
-    m.def("set_tc_util(int new_tc_util) -> ()", TORCH_FN(deep_gemm::torch_registration::set_tc_util));
-    m.def("get_tc_util() -> int", TORCH_FN(deep_gemm::torch_registration::get_tc_util));
-    m.def("set_pdl(bool new_enable_pdl) -> ()", TORCH_FN(deep_gemm::torch_registration::set_pdl));
-    m.def("get_pdl() -> bool", TORCH_FN(deep_gemm::torch_registration::get_pdl));
-    m.def("set_ignore_compile_dims(bool new_value) -> ()", TORCH_FN(deep_gemm::torch_registration::set_ignore_compile_dims));
-    m.def("set_block_size_multiple_of(int[] value) -> ()", TORCH_FN(deep_gemm::torch_registration::set_block_size_multiple_of));
-    m.def("init(str library_root_path, str cuda_home_path_by_python) -> ()", TORCH_FN(deep_gemm::torch_registration::init));
+STABLE_TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
+    m.def("set_num_sms(int new_num_sms) -> ()");
+    m.def("get_num_sms() -> int");
+    m.def("set_tc_util(int new_tc_util) -> ()");
+    m.def("get_tc_util() -> int");
+    m.def("set_pdl(bool new_enable_pdl) -> ()");
+    m.def("get_pdl() -> bool");
+    m.def("set_ignore_compile_dims(bool new_value) -> ()");
+    m.def("set_block_size_multiple_of(int[] value) -> ()");
+    m.def("init(str library_root_path, str cuda_home_path_by_python) -> ()");
+}
+
+// No Tensor args means no dispatch key set, so register under CompositeImplicitAutograd (the catch-all key).
+STABLE_TORCH_LIBRARY_IMPL(deep_gemm, CompositeImplicitAutograd, m) {
+    using namespace deep_gemm::torch_registration;
+
+    m.impl("set_num_sms", TORCH_BOX(&set_num_sms));
+    m.impl("get_num_sms", TORCH_BOX(&get_num_sms));
+    m.impl("set_tc_util", TORCH_BOX(&set_tc_util));
+    m.impl("get_tc_util", TORCH_BOX(&get_tc_util));
+    m.impl("set_pdl", TORCH_BOX(&set_pdl));
+    m.impl("get_pdl", TORCH_BOX(&get_pdl));
+    m.impl("set_ignore_compile_dims", TORCH_BOX(&set_ignore_compile_dims));
+    m.impl("set_block_size_multiple_of", TORCH_BOX(&set_block_size_multiple_of));
+    m.impl("init", TORCH_BOX(&init));
 }

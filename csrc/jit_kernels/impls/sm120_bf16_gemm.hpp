@@ -308,13 +308,20 @@ static void sm120_bf16_k_grouped_gemm(const torch::stable::Tensor& a,
     // SM120 K-grouped kernel expects per-group compact K-major layout:
     // each group stored as [mn, Ki] flattened, groups concatenated.
     // API provides MN-major a[sum_k, m], b[sum_k, n] — transpose per group.
-    auto a_km = torch::stable::empty({static_cast<int64_t>(sum_k) * m}, a.options());
-    auto b_km = torch::stable::empty({static_cast<int64_t>(sum_k) * n}, b.options());
+    auto a_km = torch::stable::new_empty(a, {static_cast<int64_t>(sum_k) * m});
+    auto b_km = torch::stable::new_empty(b, {static_cast<int64_t>(sum_k) * n});
+    // `narrow` needs a non-const handle; `a`/`b` are const refs but the copy is cheap.
+    auto a_mut = a;
+    auto b_mut = b;
     int prefix = 0;
     for (const auto ki: ks) {
         if (ki == 0) continue;
-        torch::stable::copy_(a_km.slice(0, static_cast<int64_t>(prefix) * m, static_cast<int64_t>(prefix + ki) * m), torch::stable::flatten(torch::stable::contiguous(a.slice(0, prefix, prefix + ki).t())));
-        torch::stable::copy_(b_km.slice(0, static_cast<int64_t>(prefix) * n, static_cast<int64_t>(prefix + ki) * n), torch::stable::flatten(torch::stable::contiguous(b.slice(0, prefix, prefix + ki).t())));
+        auto a_km_slice = torch::stable::narrow(a_km, 0, static_cast<int64_t>(prefix) * m, static_cast<int64_t>(ki) * m);
+        auto b_km_slice = torch::stable::narrow(b_km, 0, static_cast<int64_t>(prefix) * n, static_cast<int64_t>(ki) * n);
+        auto a_group_t = torch::stable::transpose(torch::stable::narrow(a_mut, 0, prefix, ki), 0, 1);
+        auto b_group_t = torch::stable::transpose(torch::stable::narrow(b_mut, 0, prefix, ki), 0, 1);
+        torch::stable::copy_(a_km_slice, torch::stable::flatten(torch::stable::contiguous(a_group_t)));
+        torch::stable::copy_(b_km_slice, torch::stable::flatten(torch::stable::contiguous(b_group_t)));
         prefix += ki;
     }
     const auto num_groups = static_cast<int>(ks.size());
@@ -336,9 +343,9 @@ static void sm120_bf16_k_grouped_gemm(const torch::stable::Tensor& a,
 
     // Allocate tensor map buffer for dynamic replacement (A + B per SM)
     const auto num_sms = device_runtime->get_num_sms();
-    const auto tensor_map_buffer = torch::stable::empty(
-        {num_sms * 2 * static_cast<int>(sizeof(CUtensorMap))},
-        a.options().dtype(torch::headeronly::ScalarType::Byte));
+    const auto tensor_map_buffer = torch::stable::new_empty(
+        a, {num_sms * 2 * static_cast<int>(sizeof(CUtensorMap))},
+        torch::headeronly::ScalarType::Byte);
 
     // Use first non-zero K for initial TMA descriptors
     int first_k = 0;

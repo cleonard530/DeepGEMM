@@ -148,7 +148,7 @@ static CUtensorMap make_tma_2d_desc(const torch::stable::Tensor& t,
     }
     DG_CUDA_DRIVER_CHECK(lazy_cuTensorMapEncodeTiled(
         &tensor_map, aten_dtype_to_tensor_map_dtype(t.scalar_type(), allow_tf32, fp4_unpacked_smem),
-        2, t.const_data_ptr(), gmem_dims, gmem_strides, smem_dims, elem_strides,
+        2, const_cast<void*>(t.const_data_ptr()), gmem_dims, gmem_strides, smem_dims, elem_strides,
         CU_TENSOR_MAP_INTERLEAVE_NONE, mode_into_tensor_map_swizzle(swizzle_mode, swizzle_base),
         CU_TENSOR_MAP_L2_PROMOTION_L2_256B, CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE));
     return tensor_map;
@@ -186,7 +186,7 @@ static CUtensorMap make_tma_3d_desc(const torch::stable::Tensor& t,
     }
     DG_CUDA_DRIVER_CHECK(lazy_cuTensorMapEncodeTiled(
         &tensor_map, aten_dtype_to_tensor_map_dtype(t.scalar_type(), allow_tf32, fp4_unpacked_smem),
-        3, t.const_data_ptr(), gmem_dims, gmem_strides, smem_dims, elem_strides,
+        3, const_cast<void*>(t.const_data_ptr()), gmem_dims, gmem_strides, smem_dims, elem_strides,
         CU_TENSOR_MAP_INTERLEAVE_NONE, mode_into_tensor_map_swizzle(swizzle_mode, swizzle_base),
         CU_TENSOR_MAP_L2_PROMOTION_L2_256B, CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE));
     return tensor_map;

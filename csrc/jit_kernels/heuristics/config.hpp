@@ -50,7 +50,7 @@ struct GemmDesc {
             DG_HOST_ASSERT(a_dtype == torch::headeronly::ScalarType::Float8_e4m3fn or a_dtype == kPackedFP4);
             DG_HOST_ASSERT(b_dtype == torch::headeronly::ScalarType::Float8_e4m3fn or b_dtype == kPackedFP4);
         }
-        DG_HOST_ASSERT(cd_dtype == torch::kBFloat16 or cd_dtype == torch::headeronly::ScalarType::Float);
+        DG_HOST_ASSERT(cd_dtype == torch::headeronly::ScalarType::BFloat16 or cd_dtype == torch::headeronly::ScalarType::Float);
         DG_HOST_ASSERT(num_sms % 2 == 0);
     }
 
@@ -63,9 +63,9 @@ struct GemmDesc {
            << ", major_a=" << static_cast<int>(desc.major_a)
            << ", major_b=" << static_cast<int>(desc.major_b)
            << ", mma_kind=" << static_cast<int>(mma_kind)
-           << ", a_dtype=" << c10::toString(desc.a_dtype)
-           << ", b_dtype=" << c10::toString(desc.b_dtype)
-           << ", cd_dtype=" << c10::toString(desc.cd_dtype)
+           << ", a_dtype=" << torch::headeronly::toString(desc.a_dtype)
+           << ", b_dtype=" << torch::headeronly::toString(desc.b_dtype)
+           << ", cd_dtype=" << torch::headeronly::toString(desc.cd_dtype)
            << ", with_accumulation=" << static_cast<int>(desc.with_accumulation)
            << ", num_sms=" << desc.num_sms
            << ", tc_util=" << desc.tc_util

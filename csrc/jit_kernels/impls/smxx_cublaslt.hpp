@@ -3,7 +3,7 @@
 #include <cublasLt.h>
 #include <torch/csrc/stable/accelerator.h>
 #include <cuda_runtime.h>
-#include <ATen/cuda/CUDADataType.h>
+#include <library_types.h>
 #include <cute/arch/mma_sm100_umma.hpp>
 
 #include "../../jit/device_runtime.hpp"
@@ -11,6 +11,30 @@
 #include "../../utils/compatibility.hpp"
 
 namespace deep_gemm {
+
+// Local copy: `at::cuda::ScalarTypeToCudaDataType` lives in an unstable ATen header.
+static cudaDataType scalar_type_to_cuda_data_type(const torch::headeronly::ScalarType& scalar_type) {
+    switch (scalar_type) {
+        case torch::headeronly::ScalarType::Byte:
+            return CUDA_R_8U;
+        case torch::headeronly::ScalarType::Char:
+            return CUDA_R_8I;
+        case torch::headeronly::ScalarType::Int:
+            return CUDA_R_32I;
+        case torch::headeronly::ScalarType::Half:
+            return CUDA_R_16F;
+        case torch::headeronly::ScalarType::Float:
+            return CUDA_R_32F;
+        case torch::headeronly::ScalarType::BFloat16:
+            return CUDA_R_16BF;
+        case torch::headeronly::ScalarType::Float8_e4m3fn:
+            return CUDA_R_8F_E4M3;
+        case torch::headeronly::ScalarType::Float8_e5m2:
+            return CUDA_R_8F_E5M2;
+        default:
+            DG_HOST_UNREACHABLE("Cannot convert ScalarType to cudaDataType");
+    }
+}
 
 static auto get_cublaslt_layout(const cudaDataType& type, const int& rows, const int& cols, const int& ld,
                                 const std::optional<int>& batch_count = std::nullopt,
@@ -61,9 +85,9 @@ static void call_cublaslt_api(const cublasOperation_t& trans_a,
     const auto handle = device_runtime->get_cublaslt_handle();
     const auto workspace = device_runtime->get_cublaslt_workspace();
     const auto workspace_bytes = workspace.numel() * workspace.element_size();
-    StreamHandle stream_handle = nullptr;
-    aoti_torch_get_current_stream(-1, &stream_handle);
-    const cudaStream_t stream = reinterpret_cast<cudaStream_t>(stream_handle);
+    // `StreamHandle` is an opaque `c10::Stream*`, not a raw `cudaStream_t`.
+    cudaStream_t stream = nullptr;
+    aoti_torch_get_current_cuda_stream(-1, reinterpret_cast<void**>(&stream));
 
     // Algorithm selection
     cublasLtMatmulPreference_t pref;
@@ -110,9 +134,9 @@ static void cublaslt_gemm(const torch::stable::Tensor& lhs, const torch::stable:
     const auto trans_b = a_major == cute::UMMA::Major::K ? CUBLAS_OP_N : CUBLAS_OP_T;
 
     // Matrix layouts
-    const auto cuda_type_a = at::cuda::ScalarTypeToCudaDataType(rhs.scalar_type());
-    const auto cuda_type_b = at::cuda::ScalarTypeToCudaDataType(lhs.scalar_type());
-    const auto cuda_type_d = at::cuda::ScalarTypeToCudaDataType(out.scalar_type());
+    const auto cuda_type_a = scalar_type_to_cuda_data_type(rhs.scalar_type());
+    const auto cuda_type_b = scalar_type_to_cuda_data_type(lhs.scalar_type());
+    const auto cuda_type_d = scalar_type_to_cuda_data_type(out.scalar_type());
     const auto layout_a = b_major == cute::UMMA::Major::K ? get_cublaslt_layout(cuda_type_a, k, n, rhs.stride(0))
                                                           : get_cublaslt_layout(cuda_type_a, n, k, rhs.stride(1));
     const auto layout_b = a_major == cute::UMMA::Major::K ? get_cublaslt_layout(cuda_type_b, k, m, lhs.stride(0))

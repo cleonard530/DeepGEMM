@@ -135,13 +135,16 @@ static void sm100_mqa_logits_f16_weights(
     // {UINT32_MAX, 0} is neutral for the device-side min(start)/max(end)
     // reduction and suppresses compressed stores for padded rows.
     const int aligned_offset_rows = align(seq_len, block_q_2cta);
-    torch::stable::Tensor cu_seq_len_k_start_and_end = torch::stable::empty(
-        {aligned_offset_rows, 2}, cu_seq_len_k_start.options());
+    torch::stable::Tensor cu_seq_len_k_start_and_end = torch::stable::new_empty(
+        cu_seq_len_k_start, {aligned_offset_rows, 2});
     torch::stable::fill_(torch::stable::select(cu_seq_len_k_start_and_end, 1, 0), -1);
-    torch::stable::zero_(torch::stable::select(cu_seq_len_k_start_and_end, 1, 1));
+    auto end_col = torch::stable::select(cu_seq_len_k_start_and_end, 1, 1);
+    torch::stable::zero_(end_col);
     auto valid_offsets = torch::stable::narrow(cu_seq_len_k_start_and_end, 0, 0, seq_len);
-    torch::stable::copy_(torch::stable::select(valid_offsets, 1, 0), cu_seq_len_k_start);
-    torch::stable::copy_(torch::stable::select(valid_offsets, 1, 1), cu_seq_len_k_end);
+    auto valid_start_col = torch::stable::select(valid_offsets, 1, 0);
+    auto valid_end_col = torch::stable::select(valid_offsets, 1, 1);
+    torch::stable::copy_(valid_start_col, cu_seq_len_k_start);
+    torch::stable::copy_(valid_end_col, cu_seq_len_k_end);
     cu_seq_len_k_start_and_end = torch::stable::contiguous(torch::stable::reshape(cu_seq_len_k_start_and_end, {-1}));
 
     const SM100MQALogitsF16WeightsRuntime::Args args = {

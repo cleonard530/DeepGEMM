@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "../utils/compatibility.hpp"
 
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
@@ -29,23 +31,26 @@ static bool early_return(const int& m, const int &n, const int& k,
     // Checks
     const bool is_cd_same = c.has_value() and c->mutable_data_ptr() == d.mutable_data_ptr();
     if (is_cd_same)
-        DG_HOST_ASSERT(c->sizes() == d.sizes() and c->strides() == d.strides());
+        DG_HOST_ASSERT(c->sizes().equals(d.sizes()) and c->strides().equals(d.strides()));
     DG_HOST_ASSERT(d.scalar_type() == torch::headeronly::ScalarType::BFloat16 or d.scalar_type() == torch::headeronly::ScalarType::Float);
     if (c.has_value()) {
         check_major_type_cd(c.value());
         DG_HOST_ASSERT(d.scalar_type() == c.value().scalar_type());
     }
 
+    // `copy_`/`zero_` need a non-const handle; `d` is a const ref but the copy is cheap.
+    auto d_mut = d;
+
     // No accumulation
     if (k == 0) {
         if (not is_cd_same)
-            c.has_value() ? torch::stable::copy_(d, c.value()) : torch::stable::zero_(d);
+            c.has_value() ? torch::stable::copy_(d_mut, c.value()) : torch::stable::zero_(d_mut);
         return true;
     }
 
     // With accumulation, do copy before GEMM (assuming the GEMM kernel does not support different C/D)
     if (c.has_value() and not is_cd_same)
-        torch::stable::copy_(d, c.value());
+        torch::stable::copy_(d_mut, c.value());
     return false;
 }
 
@@ -374,7 +379,7 @@ static void m_grouped_fp8_fp4_gemm_nt_masked(const std::pair<torch::stable::Tens
     DG_HOST_ASSERT(m == m_ and n == n_ and k == k_);
     DG_HOST_ASSERT(expected_m > 0 and m > 0 and n > 0 and k > 0 and num_groups > 0);
     DG_HOST_ASSERT(d.scalar_type() == torch::headeronly::ScalarType::BFloat16);
-    DG_HOST_ASSERT(masked_m.scalar_type() == torch::kInt);
+    DG_HOST_ASSERT(masked_m.scalar_type() == torch::headeronly::ScalarType::Int);
 
     // D must be N-major
     check_major_type_cd(d);
@@ -449,11 +454,11 @@ static void k_grouped_fp8_gemm_tn_contiguous(const std::pair<torch::stable::Tens
         DG_HOST_ASSERT(not use_psum_layout and ks_cpu.has_value() and not ks_cpu.value().empty());
         // SM120: single transpose [sum_k, M/N] → [M/N, sum_k] with constant stride=sum_k.
         // Kernel uses kKGroupedConstantStride: per-group only replaces addr+dim, not stride.
-        const auto a_k = torch::stable::contiguous(a.first.t());
-        const auto b_k = torch::stable::contiguous(b.first.t());
+        const auto a_k = torch::stable::contiguous(torch::stable::transpose(a.first, 0, 1));
+        const auto b_k = torch::stable::contiguous(torch::stable::transpose(b.first, 0, 1));
         const auto num_sms = device_runtime->get_num_sms();
-        const auto tensor_map_buffer = torch::stable::empty({num_sms * 4 * static_cast<int>(sizeof(CUtensorMap))},
-                                                    a.first.options().dtype(torch::headeronly::ScalarType::Byte));
+        const auto tensor_map_buffer = torch::stable::new_empty(a.first, {num_sms * 4 * static_cast<int>(sizeof(CUtensorMap))},
+                                                                torch::headeronly::ScalarType::Byte);
         sm120_k_grouped_fp8_fp4_gemm_1d1d(a_k, sfa, b_k, sfb, c, d, m, n,
                                            ks_cpu.value(), grouped_layout, tensor_map_buffer,
                                            gran_k, gran_k,
@@ -510,8 +515,8 @@ static void k_grouped_fp8_gemm_nt_contiguous(const std::pair<torch::stable::Tens
     // Allocate tensormap buffer
     // `4` means the double buffering for both A and B operands (2 * 2)
     const auto num_sms = device_runtime->get_num_sms();
-    const auto tensor_map_buffer = torch::stable::empty({num_sms * 4 * static_cast<int>(sizeof(CUtensorMap))},
-                                                a.first.options().dtype(torch::headeronly::ScalarType::Byte));
+    const auto tensor_map_buffer = torch::stable::new_empty(a.first, {num_sms * 4 * static_cast<int>(sizeof(CUtensorMap))},
+                                                            torch::headeronly::ScalarType::Byte);
 
     // Dispatch implementation
     if (arch_major == 9) {
@@ -1014,7 +1019,7 @@ static void cublaslt_gemm_tt(
 
 }  // namespace deep_gemm::torch_registration
 
-TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
+STABLE_TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
     // GEMM — FP8/FP4
     m.def(
@@ -1068,30 +1073,30 @@ STABLE_TORCH_LIBRARY_IMPL(deep_gemm, CUDA, m) {
     using namespace deep_gemm::torch_registration;
 
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
-    m.impl("fp8_fp4_gemm_nt", TORCH_FN(fp8_fp4_gemm_nt));
-    m.impl("fp8_fp4_gemm_nn", TORCH_FN(fp8_fp4_gemm_nn));
-    m.impl("fp8_fp4_gemm_tn", TORCH_FN(fp8_fp4_gemm_tn));
-    m.impl("fp8_fp4_gemm_tt", TORCH_FN(fp8_fp4_gemm_tt));
-    m.impl("m_grouped_fp8_fp4_gemm_nt_contiguous", TORCH_FN(m_grouped_fp8_fp4_gemm_nt_contiguous));
-    m.impl("m_grouped_fp8_fp4_gemm_nn_contiguous", TORCH_FN(m_grouped_fp8_fp4_gemm_nn_contiguous));
-    m.impl("m_grouped_fp8_fp4_gemm_nt_masked", TORCH_FN(m_grouped_fp8_fp4_gemm_nt_masked));
-    m.impl("k_grouped_fp8_gemm_tn_contiguous", TORCH_FN(k_grouped_fp8_gemm_tn_contiguous));
-    m.impl("k_grouped_fp8_gemm_nt_contiguous", TORCH_FN(k_grouped_fp8_gemm_nt_contiguous));
+    m.impl("fp8_fp4_gemm_nt", TORCH_BOX(&fp8_fp4_gemm_nt));
+    m.impl("fp8_fp4_gemm_nn", TORCH_BOX(&fp8_fp4_gemm_nn));
+    m.impl("fp8_fp4_gemm_tn", TORCH_BOX(&fp8_fp4_gemm_tn));
+    m.impl("fp8_fp4_gemm_tt", TORCH_BOX(&fp8_fp4_gemm_tt));
+    m.impl("m_grouped_fp8_fp4_gemm_nt_contiguous", TORCH_BOX(&m_grouped_fp8_fp4_gemm_nt_contiguous));
+    m.impl("m_grouped_fp8_fp4_gemm_nn_contiguous", TORCH_BOX(&m_grouped_fp8_fp4_gemm_nn_contiguous));
+    m.impl("m_grouped_fp8_fp4_gemm_nt_masked", TORCH_BOX(&m_grouped_fp8_fp4_gemm_nt_masked));
+    m.impl("k_grouped_fp8_gemm_tn_contiguous", TORCH_BOX(&k_grouped_fp8_gemm_tn_contiguous));
+    m.impl("k_grouped_fp8_gemm_nt_contiguous", TORCH_BOX(&k_grouped_fp8_gemm_nt_contiguous));
 #endif
 
 #if DG_TENSORMAP_COMPATIBLE
-    m.impl("bf16_gemm_nt", TORCH_FN(bf16_gemm_nt));
-    m.impl("bf16_gemm_nn", TORCH_FN(bf16_gemm_nn));
-    m.impl("bf16_gemm_tn", TORCH_FN(bf16_gemm_tn));
-    m.impl("bf16_gemm_tt", TORCH_FN(bf16_gemm_tt));
-    m.impl("m_grouped_bf16_gemm_nt_contiguous", TORCH_FN(m_grouped_bf16_gemm_nt_contiguous));
-    m.impl("m_grouped_bf16_gemm_nn_contiguous", TORCH_FN(m_grouped_bf16_gemm_nn_contiguous));
-    m.impl("m_grouped_bf16_gemm_nt_masked", TORCH_FN(m_grouped_bf16_gemm_nt_masked));
-    m.impl("k_grouped_bf16_gemm_tn_contiguous", TORCH_FN(k_grouped_bf16_gemm_tn_contiguous));
+    m.impl("bf16_gemm_nt", TORCH_BOX(&bf16_gemm_nt));
+    m.impl("bf16_gemm_nn", TORCH_BOX(&bf16_gemm_nn));
+    m.impl("bf16_gemm_tn", TORCH_BOX(&bf16_gemm_tn));
+    m.impl("bf16_gemm_tt", TORCH_BOX(&bf16_gemm_tt));
+    m.impl("m_grouped_bf16_gemm_nt_contiguous", TORCH_BOX(&m_grouped_bf16_gemm_nt_contiguous));
+    m.impl("m_grouped_bf16_gemm_nn_contiguous", TORCH_BOX(&m_grouped_bf16_gemm_nn_contiguous));
+    m.impl("m_grouped_bf16_gemm_nt_masked", TORCH_BOX(&m_grouped_bf16_gemm_nt_masked));
+    m.impl("k_grouped_bf16_gemm_tn_contiguous", TORCH_BOX(&k_grouped_bf16_gemm_tn_contiguous));
 #endif
 
-    m.impl("cublaslt_gemm_nt", TORCH_FN(cublaslt_gemm_nt));
-    m.impl("cublaslt_gemm_nn", TORCH_FN(cublaslt_gemm_nn));
-    m.impl("cublaslt_gemm_tn", TORCH_FN(cublaslt_gemm_tn));
-    m.impl("cublaslt_gemm_tt", TORCH_FN(cublaslt_gemm_tt));
+    m.impl("cublaslt_gemm_nt", TORCH_BOX(&cublaslt_gemm_nt));
+    m.impl("cublaslt_gemm_nn", TORCH_BOX(&cublaslt_gemm_nn));
+    m.impl("cublaslt_gemm_tn", TORCH_BOX(&cublaslt_gemm_tn));
+    m.impl("cublaslt_gemm_tt", TORCH_BOX(&cublaslt_gemm_tt));
 }
