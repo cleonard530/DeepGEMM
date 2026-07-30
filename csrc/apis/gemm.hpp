@@ -795,9 +795,9 @@ static void fp8_fp4_gemm_nt(
     const torch::Tensor& a, const torch::Tensor& sfa,
     const torch::Tensor& b, const torch::Tensor& sfb,
     const torch::Tensor& d, const c10::optional<torch::Tensor>& c,
-    const c10::optional<c10::List<int64_t>>& recipe,
-    const c10::optional<c10::List<int64_t>>& recipe_a,
-    const c10::optional<c10::List<int64_t>>& recipe_b,
+    const c10::optional<std::vector<int64_t>>& recipe,
+    const c10::optional<std::vector<int64_t>>& recipe_a,
+    const c10::optional<std::vector<int64_t>>& recipe_b,
     const std::string& compiled_dims, const bool& disable_ue8m0_cast) {
     gemm::fp8_fp4_gemm_nt({a, sfa}, {b, sfb}, d, c,
                           list_to_recipe3(recipe), list_to_recipe2(recipe_a), list_to_recipe2(recipe_b),
@@ -808,9 +808,9 @@ static void fp8_fp4_gemm_nn(
     const torch::Tensor& a, const torch::Tensor& sfa,
     const torch::Tensor& b, const torch::Tensor& sfb,
     const torch::Tensor& d, const c10::optional<torch::Tensor>& c,
-    const c10::optional<c10::List<int64_t>>& recipe,
-    const c10::optional<c10::List<int64_t>>& recipe_a,
-    const c10::optional<c10::List<int64_t>>& recipe_b,
+    const c10::optional<std::vector<int64_t>>& recipe,
+    const c10::optional<std::vector<int64_t>>& recipe_a,
+    const c10::optional<std::vector<int64_t>>& recipe_b,
     const std::string& compiled_dims, const bool& disable_ue8m0_cast) {
     gemm::fp8_fp4_gemm_nn({a, sfa}, {b, sfb}, d, c,
                           list_to_recipe3(recipe), list_to_recipe2(recipe_a), list_to_recipe2(recipe_b),
@@ -821,9 +821,9 @@ static void fp8_fp4_gemm_tn(
     const torch::Tensor& a, const torch::Tensor& sfa,
     const torch::Tensor& b, const torch::Tensor& sfb,
     const torch::Tensor& d, const c10::optional<torch::Tensor>& c,
-    const c10::optional<c10::List<int64_t>>& recipe,
-    const c10::optional<c10::List<int64_t>>& recipe_a,
-    const c10::optional<c10::List<int64_t>>& recipe_b,
+    const c10::optional<std::vector<int64_t>>& recipe,
+    const c10::optional<std::vector<int64_t>>& recipe_a,
+    const c10::optional<std::vector<int64_t>>& recipe_b,
     const std::string& compiled_dims, const bool& disable_ue8m0_cast) {
     gemm::fp8_fp4_gemm_tn({a, sfa}, {b, sfb}, d, c,
                           list_to_recipe3(recipe), list_to_recipe2(recipe_a), list_to_recipe2(recipe_b),
@@ -834,9 +834,9 @@ static void fp8_fp4_gemm_tt(
     const torch::Tensor& a, const torch::Tensor& sfa,
     const torch::Tensor& b, const torch::Tensor& sfb,
     const torch::Tensor& d, const c10::optional<torch::Tensor>& c,
-    const c10::optional<c10::List<int64_t>>& recipe,
-    const c10::optional<c10::List<int64_t>>& recipe_a,
-    const c10::optional<c10::List<int64_t>>& recipe_b,
+    const c10::optional<std::vector<int64_t>>& recipe,
+    const c10::optional<std::vector<int64_t>>& recipe_a,
+    const c10::optional<std::vector<int64_t>>& recipe_b,
     const std::string& compiled_dims, const bool& disable_ue8m0_cast) {
     gemm::fp8_fp4_gemm_tt({a, sfa}, {b, sfb}, d, c,
                           list_to_recipe3(recipe), list_to_recipe2(recipe_a), list_to_recipe2(recipe_b),
@@ -847,9 +847,9 @@ static void m_grouped_fp8_fp4_gemm_nt_contiguous(
     const torch::Tensor& a, const torch::Tensor& sfa,
     const torch::Tensor& b, const torch::Tensor& sfb,
     const torch::Tensor& d, const torch::Tensor& grouped_layout,
-    const c10::optional<c10::List<int64_t>>& recipe,
-    const c10::optional<c10::List<int64_t>>& recipe_a,
-    const c10::optional<c10::List<int64_t>>& recipe_b,
+    const c10::optional<std::vector<int64_t>>& recipe,
+    const c10::optional<std::vector<int64_t>>& recipe_a,
+    const c10::optional<std::vector<int64_t>>& recipe_b,
     const std::string& compiled_dims, const bool& disable_ue8m0_cast,
     const bool& use_psum_layout, const bool& ensure_zero_padding,
     const c10::optional<int64_t>& expected_m_for_psum_layout) {
@@ -866,9 +866,9 @@ static void m_grouped_fp8_fp4_gemm_nn_contiguous(
     const torch::Tensor& a, const torch::Tensor& sfa,
     const torch::Tensor& b, const torch::Tensor& sfb,
     const torch::Tensor& d, const torch::Tensor& grouped_layout,
-    const c10::optional<c10::List<int64_t>>& recipe,
-    const c10::optional<c10::List<int64_t>>& recipe_a,
-    const c10::optional<c10::List<int64_t>>& recipe_b,
+    const c10::optional<std::vector<int64_t>>& recipe,
+    const c10::optional<std::vector<int64_t>>& recipe_a,
+    const c10::optional<std::vector<int64_t>>& recipe_b,
     const std::string& compiled_dims, const bool& disable_ue8m0_cast,
     const bool& use_psum_layout, const bool& ensure_zero_padding) {
     gemm::m_grouped_fp8_fp4_gemm_nn_contiguous(
@@ -882,9 +882,9 @@ static void m_grouped_fp8_fp4_gemm_nt_masked(
     const torch::Tensor& b, const torch::Tensor& sfb,
     const torch::Tensor& d, const torch::Tensor& masked_m,
     const int64_t& expected_m,
-    const c10::optional<c10::List<int64_t>>& recipe,
-    const c10::optional<c10::List<int64_t>>& recipe_a,
-    const c10::optional<c10::List<int64_t>>& recipe_b,
+    const c10::optional<std::vector<int64_t>>& recipe,
+    const c10::optional<std::vector<int64_t>>& recipe_a,
+    const c10::optional<std::vector<int64_t>>& recipe_b,
     const std::string& compiled_dims, const bool& disable_ue8m0_cast) {
     gemm::m_grouped_fp8_fp4_gemm_nt_masked(
         {a, sfa}, {b, sfb}, d, masked_m, static_cast<int>(expected_m),
@@ -896,10 +896,10 @@ static void k_grouped_fp8_gemm_tn_contiguous(
     const torch::Tensor& a, const torch::Tensor& sfa,
     const torch::Tensor& b, const torch::Tensor& sfb,
     const torch::Tensor& d,
-    const c10::optional<c10::List<int64_t>>& ks_cpu,
+    const c10::optional<std::vector<int64_t>>& ks_cpu,
     const torch::Tensor& grouped_layout,
     const c10::optional<torch::Tensor>& c,
-    const c10::List<int64_t>& recipe,
+    const std::vector<int64_t>& recipe,
     const std::string& compiled_dims, const bool& use_psum_layout) {
     gemm::k_grouped_fp8_gemm_tn_contiguous(
         {a, sfa}, {b, sfb}, d,
@@ -911,10 +911,10 @@ static void k_grouped_fp8_gemm_nt_contiguous(
     const torch::Tensor& a, const torch::Tensor& sfa,
     const torch::Tensor& b, const torch::Tensor& sfb,
     const torch::Tensor& d,
-    const c10::optional<c10::List<int64_t>>& ks_cpu,
+    const c10::optional<std::vector<int64_t>>& ks_cpu,
     const torch::Tensor& grouped_layout,
     const c10::optional<torch::Tensor>& c,
-    const c10::List<int64_t>& recipe,
+    const std::vector<int64_t>& recipe,
     const std::string& compiled_dims, const bool& use_psum_layout) {
     gemm::k_grouped_fp8_gemm_nt_contiguous(
         {a, sfa}, {b, sfb}, d,
@@ -978,7 +978,7 @@ static void m_grouped_bf16_gemm_nt_masked(
 
 static void k_grouped_bf16_gemm_tn_contiguous(
     const torch::Tensor& a, const torch::Tensor& b, const torch::Tensor& d,
-    const c10::optional<c10::List<int64_t>>& ks_cpu,
+    const c10::optional<std::vector<int64_t>>& ks_cpu,
     const torch::Tensor& grouped_layout,
     const c10::optional<torch::Tensor>& c,
     const std::string& compiled_dims, const bool& use_psum_layout) {
