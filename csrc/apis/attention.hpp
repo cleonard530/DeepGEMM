@@ -476,8 +476,8 @@ static void fp8_gemm_nt_skip_head_mid(
     const torch::Tensor& a, const torch::Tensor& sfa,
     const torch::Tensor& b, const torch::Tensor& sfb,
     const torch::Tensor& d,
-    const c10::List<int64_t>& head_splits,
-    const c10::optional<c10::List<int64_t>>& recipe,
+    const std::vector<int64_t>& head_splits,
+    const c10::optional<std::vector<int64_t>>& recipe,
     const std::string& compiled_dims,
     const bool& disable_ue8m0_cast) {
     attention::fp8_gemm_nt_skip_head_mid(

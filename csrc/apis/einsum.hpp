@@ -287,7 +287,7 @@ static void fp8_einsum(const std::string& expr,
                        const torch::Tensor& a, const torch::Tensor& sfa,
                        const torch::Tensor& b, const torch::Tensor& sfb,
                        const torch::Tensor& d, const c10::optional<torch::Tensor>& c,
-                       const c10::List<int64_t>& recipe) {
+                       const std::vector<int64_t>& recipe) {
     einsum::fp8_einsum(expr, {a, sfa}, {b, sfb}, d, c, list_to_tuple3(recipe));
 }
 #endif

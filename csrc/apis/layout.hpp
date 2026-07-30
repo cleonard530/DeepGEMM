@@ -148,7 +148,7 @@ using namespace deep_gemm::torch_utils;
 #if DG_TENSORMAP_COMPATIBLE
 static torch::Tensor transform_sf_into_required_layout(
     const torch::Tensor& sf, const int64_t& mn, const int64_t& k,
-    const c10::List<int64_t>& recipe,
+    const std::vector<int64_t>& recipe,
     const c10::optional<int64_t>& num_groups,
     const c10::optional<bool>& is_sfa,
     const bool& disable_ue8m0_cast,
@@ -173,7 +173,7 @@ static torch::Tensor get_mn_major_tma_aligned_packed_ue8m0_tensor(
 
 static torch::Tensor get_k_grouped_mn_major_tma_aligned_packed_ue8m0_tensor(
     const torch::Tensor& sf, const torch::Tensor& grouped_layout,
-    const c10::optional<c10::List<int64_t>>& ks_cpu,
+    const c10::optional<std::vector<int64_t>>& ks_cpu,
     const int64_t& gran_k, const int64_t& k_alignment,
     const bool& use_psum_layout) {
     return ::deep_gemm::get_k_grouped_mn_major_tma_aligned_packed_ue8m0_tensor(
