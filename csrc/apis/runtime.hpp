@@ -39,7 +39,7 @@ static void set_ignore_compile_dims(const bool& new_value) {
     heuristics_runtime->set_ignore_compile_dims(new_value);
 }
 
-static void set_block_size_multiple_of(const c10::List<int64_t>& value) {
+static void set_block_size_multiple_of(const std::vector<int64_t>& value) {
     if (value.size() == 1) {
         const int v = static_cast<int>(value[0]);
         heuristics_runtime->set_block_size_multiple_of(v, v);
