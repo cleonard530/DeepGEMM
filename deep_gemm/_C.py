@@ -16,13 +16,14 @@ _torch_ops = torch.ops.deep_gemm
 
 def _bind_guarded_ops(*names):
     """Bind ops when all are registered (matches one C++ #if guard group)."""
-    bound = {}
-    for name in names:
-        op = getattr(_torch_ops, name, None)
-        if op is None:
-            return
-        bound[name] = op
-    globals().update(bound)
+    present = [name for name in names if hasattr(_torch_ops, name)]
+    if not present:
+        return
+    assert len(present) == len(names), (
+        f'Guard group mismatch: {sorted(set(names) - set(present))} missing while '
+        f'{present} are registered — the C++ #if guards for these ops have diverged.'
+    )
+    globals().update({name: getattr(_torch_ops, name) for name in names})
 
 
 init = _torch_ops.init
@@ -223,11 +224,12 @@ def _register_deep_gemm_kernels():
         'k_grouped_bf16_gemm_tn_contiguous',
     )
 
-    # DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE — einsum.hpp, attention.hpp, hyperconnection.hpp
+    # DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE — grouped only because these three
+    # happen to share the same guard today; if any one's guard changes, split it out.
     _bind_guarded_ops(
-        'einsum',
-        'tf32_hc_prenorm_gemm',
-        'get_paged_mqa_logits_metadata',
+        'einsum',                         # einsum.hpp
+        'tf32_hc_prenorm_gemm',           # hyperconnection.hpp
+        'get_paged_mqa_logits_metadata',  # attention.hpp
     )
 
     # DG_TENSORMAP_COMPATIBLE — layout.hpp (schema and impl conditional)
