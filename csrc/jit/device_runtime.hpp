@@ -1,15 +1,21 @@
 #pragma once
 
-#include <cublasLt.h>
-#include <torch/version.h>
-#include <ATen/cuda/CUDAContext.h>
+#include <optional>
 
-#include <torch/all.h>
+#include <cublasLt.h>
+#include <torch/csrc/stable/accelerator.h>
+#include <cuda_runtime.h>
+
+#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/headeronly/core/ScalarType.h>
+#include <torch/csrc/stable/device.h>
 
 #include "../utils/exception.hpp"
 #include "../utils/lazy_init.hpp"
 
-#define PYTORCH_SUPPORTS_GET_CUBLASLT_HANDLE (TORCH_VERSION_MAJOR > 2 or (TORCH_VERSION_MAJOR == 2 and TORCH_VERSION_MINOR >= 3))
+// Stable ABI only exposes the classic cuBLAS handle, not cuBLASLt; always self-manage it.
+#define PYTORCH_SUPPORTS_GET_CUBLASLT_HANDLE 0
 
 namespace deep_gemm {
 
@@ -25,7 +31,7 @@ class DeviceRuntime {
 public:
     // Create the cuBLASLt handle ourselves
     cublasLtHandle_t cublaslt_handle;
-    torch::Tensor cublaslt_workspace;
+    torch::stable::Tensor cublaslt_workspace;
     bool use_pytorch_managed_cublaslt_handle;
     bool use_temp_cublaslt_workspace;
 
@@ -48,7 +54,8 @@ public:
             DG_CUBLASLT_CHECK(cublasLtCreate(&cublaslt_handle));
 
         if (not use_temp_cublaslt_workspace)
-            cublaslt_workspace = torch::empty({kCublasLtWorkspaceSize}, dtype(torch::kByte).device(at::kCUDA));
+            cublaslt_workspace = torch::stable::empty({kCublasLtWorkspaceSize}, torch::headeronly::ScalarType::Byte,
+                                                       std::nullopt, torch::stable::Device(torch::headeronly::DeviceType::CUDA));
     }
 
     ~DeviceRuntime() noexcept(false) {
@@ -66,9 +73,10 @@ public:
         return cublaslt_handle;
     }
 
-    torch::Tensor get_cublaslt_workspace() const {
+    torch::stable::Tensor get_cublaslt_workspace() const {
         if (use_temp_cublaslt_workspace)
-            return torch::empty({kCublasLtWorkspaceSize}, dtype(torch::kByte).device(at::kCUDA));
+            return torch::stable::empty({kCublasLtWorkspaceSize}, torch::headeronly::ScalarType::Byte,
+                                        std::nullopt, torch::stable::Device(torch::headeronly::DeviceType::CUDA));
         return cublaslt_workspace;
     }
 

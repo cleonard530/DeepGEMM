@@ -25,9 +25,17 @@ DG_USE_LOCAL_VERSION = int(os.getenv('DG_USE_LOCAL_VERSION', '1')) == 1
 DG_JIT_USE_RUNTIME_API = int(os.environ.get('DG_JIT_USE_RUNTIME_API', '0')) == 1
 
 # Compiler flags
+# `TORCH_TARGET_VERSION` pins the stable ABI surface to PyTorch 2.10 so the
+# extension only relies on APIs guaranteed to exist at runtime with any
+# libtorch >= 2.10, rather than whatever version it happened to be built
+# against (which would defeat ABI stability).
 cxx_flags = ['-std=c++17', '-O3', '-fPIC', '-Wno-psabi', '-Wno-deprecated-declarations',
              f'-D_GLIBCXX_USE_CXX11_ABI={int(torch.compiled_with_cxx11_abi())}',
-             '-DPy_LIMITED_API=0x030a0000']
+             '-DPy_LIMITED_API=0x030a0000',
+             '-DTORCH_TARGET_VERSION=0x020A000000000000',
+             # Gates the CUDA-specific declarations (e.g. `aoti_torch_get_current_cuda_stream`)
+             # in the AOTI/stable-ABI C shim headers; this extension is CUDA-only.
+             '-DUSE_CUDA']
 if DG_JIT_USE_RUNTIME_API:
     cxx_flags.append('-DDG_JIT_USE_RUNTIME_API')
 

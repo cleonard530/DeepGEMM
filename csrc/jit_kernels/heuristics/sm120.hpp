@@ -7,6 +7,7 @@
 #include "runtime.hpp"
 #include "utils.hpp"
 #include "../../utils/exception.hpp"
+#include "../../utils/torch_compat.hpp"
 
 namespace deep_gemm {
 
@@ -101,12 +102,12 @@ struct SM120ArchSpec {
         return candidates;
     }
 
-    static int get_smem_bytes_per_k(const at::ScalarType& dtype, int block_k) {
-        return (dtype == kPackedFP4) ? (block_k / 2) : (block_k * static_cast<int>(c10::elementSize(dtype)));
+    static int get_smem_bytes_per_k(const torch::headeronly::ScalarType& dtype, int block_k) {
+        return (dtype == kPackedFP4) ? (block_k / 2) : (block_k * static_cast<int>(deep_gemm::torch_compat::element_size(dtype)));
     }
 
     static int get_smem_d_size_for_swizzle(const GemmDesc& desc, const Layout& layout, int swizzle_cd, int store_m) {
-        const int cd_size = c10::elementSize(desc.cd_dtype);
+        const int cd_size = deep_gemm::torch_compat::element_size(desc.cd_dtype);
         if (swizzle_cd > 0
             and layout.block_n * cd_size >= swizzle_cd
             and (layout.block_n * cd_size) % swizzle_cd == 0)
@@ -140,10 +141,10 @@ struct SM120ArchSpec {
         const bool b_padded_fp4 = (desc.a_dtype != kPackedFP4 && desc.b_dtype == kPackedFP4);
         const auto smem_row_bytes_b = (desc.major_b == cute::UMMA::Major::K)
             ? (b_padded_fp4 ? layout.block_k : get_smem_bytes_per_k(desc.b_dtype, layout.block_k))
-            : layout.block_n * static_cast<int>(c10::elementSize(desc.b_dtype));
+            : layout.block_n * static_cast<int>(deep_gemm::torch_compat::element_size(desc.b_dtype));
         const auto swizzle_mode_b = get_swizzle_mode(smem_row_bytes_b, 1);
 
-        const int cd_size = c10::elementSize(desc.cd_dtype);
+        const int cd_size = deep_gemm::torch_compat::element_size(desc.cd_dtype);
         // cd_n_contiguous gates the TMA-store epilogue (off for AB-swap transposed output).
         const auto swizzle_mode_cd = (desc.cd_n_contiguous and layout.block_n * cd_size >= 128) ? 128 : 0;
 

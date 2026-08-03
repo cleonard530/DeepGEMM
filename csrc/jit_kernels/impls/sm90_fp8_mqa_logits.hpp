@@ -31,7 +31,7 @@ public:
         CUtensorMap tensor_map_kv;
         CUtensorMap tensor_map_kv_scales;
         CUtensorMap tensor_map_weights;
-        at::ScalarType logits_dtype;
+        torch::headeronly::ScalarType logits_dtype;
 
         int num_specialized_threads;
         int num_math_threads;
@@ -80,13 +80,13 @@ static void __instantiate_kernel() {{
     }
 };
 
-static void sm90_fp8_mqa_logits(const torch::Tensor& q,
-                                const torch::Tensor& kv, const torch::Tensor& kv_scales,
-                                const torch::Tensor& weights,
-                                const torch::Tensor& cu_seq_len_k_start,
-                                const torch::Tensor& cu_seq_len_k_end,
-                                const torch::Tensor& logits,
-                                const at::ScalarType& logits_dtype,
+static void sm90_fp8_mqa_logits(const torch::stable::Tensor& q,
+                                const torch::stable::Tensor& kv, const torch::stable::Tensor& kv_scales,
+                                const torch::stable::Tensor& weights,
+                                const torch::stable::Tensor& cu_seq_len_k_start,
+                                const torch::stable::Tensor& cu_seq_len_k_end,
+                                const torch::stable::Tensor& logits,
+                                const torch::headeronly::ScalarType& logits_dtype,
                                 const int& seq_len, const int& seq_len_kv,
                                 const int& max_seqlen_k, const int& stride_logits,
                                 const int& num_heads, const int& head_dim,
@@ -134,9 +134,9 @@ static void sm90_fp8_mqa_logits(const torch::Tensor& q,
         .num_kv_stages = num_kv_stages,
         .block_q = block_q,
         .block_kv = block_kv,
-        .cu_seq_len_k_start = cu_seq_len_k_start.data_ptr<int>(),
-        .cu_seq_len_k_end = cu_seq_len_k_end.data_ptr<int>(),
-        .logits = logits.data_ptr(),
+        .cu_seq_len_k_start = cu_seq_len_k_start.mutable_data_ptr<int>(),
+        .cu_seq_len_k_end = cu_seq_len_k_end.mutable_data_ptr<int>(),
+        .logits = logits.mutable_data_ptr(),
         .tensor_map_q = tensor_map_q,
         .tensor_map_kv = tensor_map_kv,
         .tensor_map_kv_scales = tensor_map_kv_scales,
@@ -199,8 +199,8 @@ static void __instantiate_kernel() {{
     }
 };
 
-static void sm90_paged_mqa_logits_metadata(const torch::Tensor& context_lens,
-                                           const torch::Tensor& schedule_metadata,
+static void sm90_paged_mqa_logits_metadata(const torch::stable::Tensor& context_lens,
+                                           const torch::stable::Tensor& schedule_metadata,
                                            const int& batch_size, const int& next_n,
                                            const int& block_kv, const int& num_clusters,
                                            const bool& is_context_lens_2d,
@@ -224,9 +224,9 @@ static void sm90_paged_mqa_logits_metadata(const torch::Tensor& context_lens,
         .next_n = next_n,
         .num_next_n_atoms = num_next_n_atoms,
         .is_context_lens_2d = is_context_lens_2d,
-        .context_lens = context_lens.data_ptr<int>(),
+        .context_lens = context_lens.mutable_data_ptr<int>(),
         .indices = const_cast<int*>(indices_ptr),
-        .schedule_metadata = schedule_metadata.data_ptr<int>(),
+        .schedule_metadata = schedule_metadata.mutable_data_ptr<int>(),
         .launch_args = LaunchArgs(1, num_threads, smem_size)
     };
     const auto code = SM90PagedMQALogitsMetadataRuntime::generate(args);
@@ -261,7 +261,7 @@ public:
         CUtensorMap tensor_map_kv;
         CUtensorMap tensor_map_kv_scales;
         CUtensorMap tensor_map_weights;
-        at::ScalarType logits_dtype;
+        torch::headeronly::ScalarType logits_dtype;
 
         int num_specialized_threads;
         int num_math_threads;
@@ -313,16 +313,16 @@ static void __instantiate_kernel() {{
     }
 };
 
-static void sm90_fp8_paged_mqa_logits(const torch::Tensor& q,
-                                      const torch::Tensor& kv_cache,
-                                      const torch::Tensor& kv_cache_scales,
-                                      const torch::Tensor& weights,
-                                      const torch::Tensor& context_lens,
-                                      const torch::Tensor& logits,
-                                      const torch::Tensor& block_table,
-                                      const torch::Tensor& indices,
-                                      const torch::Tensor& schedule_meta,
-                                      const at::ScalarType& logits_dtype,
+static void sm90_fp8_paged_mqa_logits(const torch::stable::Tensor& q,
+                                      const torch::stable::Tensor& kv_cache,
+                                      const torch::stable::Tensor& kv_cache_scales,
+                                      const torch::stable::Tensor& weights,
+                                      const torch::stable::Tensor& context_lens,
+                                      const torch::stable::Tensor& logits,
+                                      const torch::stable::Tensor& block_table,
+                                      const torch::stable::Tensor& indices,
+                                      const torch::stable::Tensor& schedule_meta,
+                                      const torch::headeronly::ScalarType& logits_dtype,
                                       const int& batch_size, const int& next_n,
                                       const int& num_heads, const int& head_dim,
                                       const int& num_kv_blocks, const int& block_kv,
@@ -402,11 +402,11 @@ static void sm90_fp8_paged_mqa_logits(const torch::Tensor& q,
         .num_q_stages = num_q_stages,
         .num_kv_stages = num_kv_stages,
         .split_kv = split_kv,
-        .context_lens = context_lens.data_ptr<int>(),
-        .logits = logits.data_ptr(),
-        .block_table = block_table.data_ptr<int>(),
+        .context_lens = context_lens.mutable_data_ptr<int>(),
+        .logits = logits.mutable_data_ptr(),
+        .block_table = block_table.mutable_data_ptr<int>(),
         .indices = nullptr,
-        .schedule_meta = schedule_meta.data_ptr<int>(),
+        .schedule_meta = schedule_meta.mutable_data_ptr<int>(),
         .tensor_map_q = tensor_map_q,
         .tensor_map_kv = tensor_map_kv,
         .tensor_map_kv_scales = tensor_map_kv_scales,

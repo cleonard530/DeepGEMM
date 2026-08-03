@@ -1,6 +1,10 @@
 #pragma once
 
-#include <torch/all.h>
+#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/accelerator.h>
+#include <torch/headeronly/core/ScalarType.h>
+#include <torch/csrc/stable/device.h>
 
 #include "../../jit/compiler.hpp"
 #include "../../jit/device_runtime.hpp"
@@ -60,9 +64,9 @@ static void __instantiate_kernel() {{
 };
 
 
-static void sm100_bmn_bnk_mn_gemm(const torch::Tensor &a,
-                                  const torch::Tensor &b,
-                                  const torch::Tensor &d,
+static void sm100_bmn_bnk_mn_gemm(const torch::stable::Tensor &a,
+                                  const torch::stable::Tensor &b,
+                                  const torch::stable::Tensor &d,
                                   const int &s, const int &m, const int &n, const int &k) {
     constexpr int block_m = 128;
     constexpr int block_n = 128;

@@ -31,7 +31,7 @@ public:
         CUtensorMap tensor_map_kv;
         CUtensorMap tensor_map_kv_scales;
         CUtensorMap tensor_map_weights;
-        at::ScalarType logits_dtype;
+        torch::headeronly::ScalarType logits_dtype;
 
         int num_specialized_threads;
         int num_math_threads;
@@ -77,11 +77,11 @@ static void __instantiate_kernel() {{
 };
 
 static void sm100_mqa_logits_f16_weights(
-    const torch::Tensor& q, const torch::Tensor& kv,
-    const torch::Tensor& kv_scales, const torch::Tensor& weights,
-    const torch::Tensor& cu_seq_len_k_start,
-    const torch::Tensor& cu_seq_len_k_end, const torch::Tensor& logits,
-    const at::ScalarType& logits_dtype, const int& seq_len,
+    const torch::stable::Tensor& q, const torch::stable::Tensor& kv,
+    const torch::stable::Tensor& kv_scales, const torch::stable::Tensor& weights,
+    const torch::stable::Tensor& cu_seq_len_k_start,
+    const torch::stable::Tensor& cu_seq_len_k_end, const torch::stable::Tensor& logits,
+    const torch::headeronly::ScalarType& logits_dtype, const int& seq_len,
     const int& seq_len_kv, const int& max_seqlen_k, const int& stride_logits,
     const int& num_heads, const int& head_dim, const int& block_q,
     const int& block_kv) {
@@ -91,7 +91,7 @@ static void sm100_mqa_logits_f16_weights(
     constexpr int num_q_stages = 5, num_kv_stages = 8;
     constexpr int num_math_threads = 256;
     const bool is_compressed_logits = (max_seqlen_k > 0);
-    auto weights_f16 = weights.to(torch::kFloat16).contiguous();
+    auto weights_f16 = torch::stable::contiguous(torch::stable::to(weights, torch::headeronly::ScalarType::Half));
 
     // The two CTAs split each KV tile in half and share the same Q/weights tile.
     const auto tensor_map_q =
@@ -135,14 +135,17 @@ static void sm100_mqa_logits_f16_weights(
     // {UINT32_MAX, 0} is neutral for the device-side min(start)/max(end)
     // reduction and suppresses compressed stores for padded rows.
     const int aligned_offset_rows = align(seq_len, block_q_2cta);
-    torch::Tensor cu_seq_len_k_start_and_end = torch::empty(
-        {aligned_offset_rows, 2}, cu_seq_len_k_start.options());
-    cu_seq_len_k_start_and_end.select(1, 0).fill_(-1);
-    cu_seq_len_k_start_and_end.select(1, 1).zero_();
-    auto valid_offsets = cu_seq_len_k_start_and_end.narrow(0, 0, seq_len);
-    valid_offsets.select(1, 0).copy_(cu_seq_len_k_start);
-    valid_offsets.select(1, 1).copy_(cu_seq_len_k_end);
-    cu_seq_len_k_start_and_end = cu_seq_len_k_start_and_end.reshape({-1}).contiguous();
+    torch::stable::Tensor cu_seq_len_k_start_and_end = torch::stable::new_empty(
+        cu_seq_len_k_start, {aligned_offset_rows, 2});
+    torch::stable::fill_(torch::stable::select(cu_seq_len_k_start_and_end, 1, 0), -1);
+    auto end_col = torch::stable::select(cu_seq_len_k_start_and_end, 1, 1);
+    torch::stable::zero_(end_col);
+    auto valid_offsets = torch::stable::narrow(cu_seq_len_k_start_and_end, 0, 0, seq_len);
+    auto valid_start_col = torch::stable::select(valid_offsets, 1, 0);
+    auto valid_end_col = torch::stable::select(valid_offsets, 1, 1);
+    torch::stable::copy_(valid_start_col, cu_seq_len_k_start);
+    torch::stable::copy_(valid_end_col, cu_seq_len_k_end);
+    cu_seq_len_k_start_and_end = torch::stable::contiguous(torch::stable::reshape(cu_seq_len_k_start_and_end, {-1}));
 
     const SM100MQALogitsF16WeightsRuntime::Args args = {
         .seq_len = seq_len,
@@ -157,8 +160,8 @@ static void sm100_mqa_logits_f16_weights(
         .block_q = block_q,
         .block_kv = block_kv,
         .cu_seq_len_k_start_and_end = reinterpret_cast<uint32_t*>(
-            cu_seq_len_k_start_and_end.data_ptr<int>()),
-        .logits = logits.data_ptr(),
+            cu_seq_len_k_start_and_end.mutable_data_ptr<int>()),
+        .logits = logits.mutable_data_ptr(),
         .tensor_map_q = tensor_map_q,
         .tensor_map_kv = tensor_map_kv,
         .tensor_map_kv_scales = tensor_map_kv_scales,

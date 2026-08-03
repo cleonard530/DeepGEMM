@@ -8,6 +8,7 @@
 #include "runtime.hpp"
 #include "utils.hpp"
 #include "../../utils/exception.hpp"
+#include "../../utils/torch_compat.hpp"
 
 namespace deep_gemm {
 
@@ -160,11 +161,11 @@ struct SM100ArchSpec {
         // Decide swizzling by the inner dim
         // TODO: support FP4 sub-byte
         const auto swizzle_mode_a = get_swizzle_mode(
-            desc.major_a == cute::UMMA::Major::K ? layout.block_k : load_block_m, c10::elementSize(desc.a_dtype));
+            desc.major_a == cute::UMMA::Major::K ? layout.block_k : load_block_m, deep_gemm::torch_compat::element_size(desc.a_dtype));
         const auto swizzle_mode_b = get_swizzle_mode(
-            desc.major_b == cute::UMMA::Major::K ? layout.block_k : load_block_n, c10::elementSize(desc.b_dtype));
+            desc.major_b == cute::UMMA::Major::K ? layout.block_k : load_block_n, deep_gemm::torch_compat::element_size(desc.b_dtype));
         const auto swizzle_mode_cd = get_swizzle_mode(
-            store_block_n, c10::elementSize(desc.cd_dtype));
+            store_block_n, deep_gemm::torch_compat::element_size(desc.cd_dtype));
 
         return {
             load_block_m, load_block_n,
@@ -177,7 +178,7 @@ struct SM100ArchSpec {
         constexpr int kNumMaxStages = 32;
 
         // C/D for TMA stores
-        const int smem_cd = layout.swap_ab ? storage_config.store_block_m * storage_config.store_block_n * c10::elementSize(desc.cd_dtype) * 2
+        const int smem_cd = layout.swap_ab ? storage_config.store_block_m * storage_config.store_block_n * deep_gemm::torch_compat::element_size(desc.cd_dtype) * 2
                                            : storage_config.store_block_m * storage_config.swizzle_cd_mode * 2;
 
         // TODO: remove SF barriers for BF16 GEMMs
@@ -191,8 +192,8 @@ struct SM100ArchSpec {
 
         // Calculate A/B per stages
         // TODO: consider FP4
-        const int smem_a_per_stage = storage_config.load_block_m * layout.block_k * c10::elementSize(desc.a_dtype);
-        const int smem_b_per_stage = storage_config.load_block_n * layout.block_k * c10::elementSize(desc.b_dtype);
+        const int smem_a_per_stage = storage_config.load_block_m * layout.block_k * deep_gemm::torch_compat::element_size(desc.a_dtype);
+        const int smem_b_per_stage = storage_config.load_block_n * layout.block_k * deep_gemm::torch_compat::element_size(desc.b_dtype);
 
         // Calculate SF A/B per stages
         int smem_sfa_per_stage = 0;

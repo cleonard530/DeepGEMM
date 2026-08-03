@@ -52,8 +52,8 @@ static void __instantiate_kernel() {{
     }
 };
 
-static void sm100_paged_mqa_logits_metadata(const torch::Tensor& context_lens,
-                                            const torch::Tensor& schedule_meta,
+static void sm100_paged_mqa_logits_metadata(const torch::stable::Tensor& context_lens,
+                                            const torch::stable::Tensor& schedule_meta,
                                             const int& num_requests, const int& num_q_tokens_total,
                                             const int& next_n, const int& num_sms,
                                             const bool& is_context_lens_2d, const bool& is_varlen,
@@ -72,9 +72,9 @@ static void sm100_paged_mqa_logits_metadata(const torch::Tensor& context_lens,
         .num_sms = num_sms,
         .num_requests = num_requests,
         .num_q_tokens_total = num_q_tokens_total,
-        .context_lens = context_lens.data_ptr<int>(),
+        .context_lens = context_lens.mutable_data_ptr<int>(),
         .indices = const_cast<int*>(indices_ptr),
-        .schedule_meta = schedule_meta.data_ptr<int>(),
+        .schedule_meta = schedule_meta.mutable_data_ptr<int>(),
         .launch_args = LaunchArgs(1, num_threads, smem_size)
     };
     const auto code = SM100PagedMQALogitsMetadataRuntime::generate(args);
@@ -85,7 +85,7 @@ static void sm100_paged_mqa_logits_metadata(const torch::Tensor& context_lens,
 // Sizes `MQALogitsSharedStorage` for a runtime (is_mx_sf, qk_dtype, num_heads, head_dim)
 // BLOCK_Q = 128 / num_heads keeps UMMA_N = 128 for all supported head counts
 static int get_mqa_logits_smem_size(const int& num_heads, const int& head_dim,
-                                    const bool& is_mx_sf, const at::ScalarType& qk_dtype) {
+                                    const bool& is_mx_sf, const torch::headeronly::ScalarType& qk_dtype) {
     const auto get_smem_size = [&]<typename qk_dtype_t>(auto is_mx_sf_c, auto h, auto d) {
         constexpr bool kIsMXSF = decltype(is_mx_sf_c)::value;
         constexpr int H = decltype(h)::value, D = decltype(d)::value;
@@ -113,7 +113,7 @@ static int get_mqa_logits_smem_size(const int& num_heads, const int& head_dim,
         return dispatch_heads([&](auto h) {
             return dispatch_head_dim([&](auto d) {
                 switch (qk_dtype) {
-                    case torch::kFloat8_e4m3fn: return get_smem_size.template operator()<cutlass::float_e4m3_t>(is_mx_sf_c, h, d);
+                    case torch::headeronly::ScalarType::Float8_e4m3fn: return get_smem_size.template operator()<cutlass::float_e4m3_t>(is_mx_sf_c, h, d);
                     case kPackedFP4:            return get_smem_size.template operator()<cutlass::float_e2m1_t>(is_mx_sf_c, h, d);
                     default: DG_HOST_UNREACHABLE("Unsupported MQA logits QK dtype");
                 }
@@ -150,9 +150,9 @@ public:
         CUtensorMap tensor_map_kv;
         CUtensorMap tensor_map_sf_kv;
         CUtensorMap tensor_map_weights;
-        at::ScalarType qk_dtype;
-        at::ScalarType logits_dtype;
-        at::ScalarType weights_dtype;
+        torch::headeronly::ScalarType qk_dtype;
+        torch::headeronly::ScalarType logits_dtype;
+        torch::headeronly::ScalarType weights_dtype;
 
         int num_specialized_threads;
         int num_math_threads;
@@ -189,7 +189,7 @@ static void __instantiate_kernel() {{
     args.num_specialized_threads, args.num_math_threads,
     args.qk_dtype == kPackedFP4 ? "cutlass::float_e2m1_t" : "cutlass::float_e4m3_t",
     to_string(args.logits_dtype),
-    args.weights_dtype == torch::kBFloat16 ? "__nv_bfloat16" : "float");
+    args.weights_dtype == torch::headeronly::ScalarType::BFloat16 ? "__nv_bfloat16" : "float");
     }
 
     static void launch_impl(const KernelHandle& kernel, const LaunchConfigHandle& config, Args args) {
@@ -205,19 +205,19 @@ static void __instantiate_kernel() {{
     }
 };
 
-static void sm100_mqa_logits(const torch::Tensor& q, const std::optional<torch::Tensor>& sf_q,
-                             const torch::Tensor& kv, const torch::Tensor& sf_kv,
-                             const torch::Tensor& weights,
-                             const torch::Tensor& cu_seq_len_k_start,
-                             const torch::Tensor& cu_seq_len_k_end,
-                             const torch::Tensor& logits,
-                             const at::ScalarType& logits_dtype,
+static void sm100_mqa_logits(const torch::stable::Tensor& q, const std::optional<torch::stable::Tensor>& sf_q,
+                             const torch::stable::Tensor& kv, const torch::stable::Tensor& sf_kv,
+                             const torch::stable::Tensor& weights,
+                             const torch::stable::Tensor& cu_seq_len_k_start,
+                             const torch::stable::Tensor& cu_seq_len_k_end,
+                             const torch::stable::Tensor& logits,
+                             const torch::headeronly::ScalarType& logits_dtype,
                              const int& num_q_tokens, const int& num_kv_tokens,
                              const int& max_seqlen_k, const int& stride_logits,
                              const int& num_heads, const int& head_dim,
                              const int& block_q, const int& split_kv,
                              const bool& is_mx_sf,
-                             const at::ScalarType& qk_dtype) {
+                             const torch::headeronly::ScalarType& qk_dtype) {
     const bool is_fp4 = qk_dtype == kPackedFP4;
 
     constexpr int num_specialized_threads = 128;
@@ -271,9 +271,9 @@ static void sm100_mqa_logits(const torch::Tensor& q, const std::optional<torch::
         .num_kv_stages = num_kv_stages,
         .block_q = block_q,
         .split_kv = split_kv,
-        .cu_seq_len_k_start = cu_seq_len_k_start.data_ptr<int>(),
-        .cu_seq_len_k_end = cu_seq_len_k_end.data_ptr<int>(),
-        .logits = logits.data_ptr(),
+        .cu_seq_len_k_start = cu_seq_len_k_start.mutable_data_ptr<int>(),
+        .cu_seq_len_k_end = cu_seq_len_k_end.mutable_data_ptr<int>(),
+        .logits = logits.mutable_data_ptr(),
         .tensor_map_q = tensor_map_q,
         .tensor_map_sf_q = tensor_map_sf_q,
         .tensor_map_kv = tensor_map_kv,
@@ -326,9 +326,9 @@ public:
         CUtensorMap tensor_map_kv;
         CUtensorMap tensor_map_sf_kv;
         CUtensorMap tensor_map_weights;
-        at::ScalarType qk_dtype;
-        at::ScalarType logits_dtype;
-        at::ScalarType weights_dtype;
+        torch::headeronly::ScalarType qk_dtype;
+        torch::headeronly::ScalarType logits_dtype;
+        torch::headeronly::ScalarType weights_dtype;
 
         int num_specialized_threads;
         int num_math_threads;
@@ -362,7 +362,7 @@ static void __instantiate_kernel() {{
     args.num_specialized_threads, args.num_math_threads,
     args.qk_dtype == kPackedFP4 ? "cutlass::float_e2m1_t" : "cutlass::float_e4m3_t",
     to_string(args.logits_dtype),
-    args.weights_dtype == torch::kBFloat16 ? "__nv_bfloat16" : "float");
+    args.weights_dtype == torch::headeronly::ScalarType::BFloat16 ? "__nv_bfloat16" : "float");
     }
 
     static void launch_impl(const KernelHandle& kernel, const LaunchConfigHandle& config, Args args) {
@@ -378,17 +378,17 @@ static void __instantiate_kernel() {{
     }
 };
 
-static void sm100_paged_mqa_logits(const torch::Tensor& q,
-                                   const std::optional<torch::Tensor>& sf_q,
-                                   const torch::Tensor& kv_cache,
-                                   const torch::Tensor& kv_cache_sf,
-                                   const torch::Tensor& weights,
-                                   const torch::Tensor& context_lens,
-                                   const torch::Tensor& logits,
-                                   const torch::Tensor& block_table,
-                                   const torch::Tensor& indices,
-                                   const torch::Tensor& schedule_meta,
-                                   const at::ScalarType& logits_dtype,
+static void sm100_paged_mqa_logits(const torch::stable::Tensor& q,
+                                   const std::optional<torch::stable::Tensor>& sf_q,
+                                   const torch::stable::Tensor& kv_cache,
+                                   const torch::stable::Tensor& kv_cache_sf,
+                                   const torch::stable::Tensor& weights,
+                                   const torch::stable::Tensor& context_lens,
+                                   const torch::stable::Tensor& logits,
+                                   const torch::stable::Tensor& block_table,
+                                   const torch::stable::Tensor& indices,
+                                   const torch::stable::Tensor& schedule_meta,
+                                   const torch::headeronly::ScalarType& logits_dtype,
                                    const int& num_requests, const int& num_q_tokens_total,
                                    const int& tokens_per_request,
                                    const int& num_heads, const int& head_dim,
@@ -401,7 +401,7 @@ static void sm100_paged_mqa_logits(const torch::Tensor& q,
                                    const int& split_kv,
                                    const int& splits_per_chunk,
                                    const bool& is_mx_sf,
-                                   const at::ScalarType& qk_dtype) {
+                                   const torch::headeronly::ScalarType& qk_dtype) {
     const bool is_fp4 = qk_dtype == kPackedFP4;
 
     const int num_specialized_threads = 128;
@@ -463,11 +463,11 @@ static void sm100_paged_mqa_logits(const torch::Tensor& q,
         .num_kv_stages = num_kv_stages,
         .split_kv = split_kv,
         .splits_per_chunk = splits_per_chunk,
-        .context_lens = context_lens.data_ptr<int>(),
-        .logits = logits.data_ptr(),
-        .block_table = block_table.data_ptr<int>(),
-        .indices = is_varlen ? indices.data_ptr<int>() : nullptr,
-        .schedule_meta = schedule_meta.data_ptr<int>(),
+        .context_lens = context_lens.mutable_data_ptr<int>(),
+        .logits = logits.mutable_data_ptr(),
+        .block_table = block_table.mutable_data_ptr<int>(),
+        .indices = is_varlen ? indices.mutable_data_ptr<int>() : nullptr,
+        .schedule_meta = schedule_meta.mutable_data_ptr<int>(),
         .tensor_map_q = tensor_map_q,
         .tensor_map_sf_q = tensor_map_sf_q,
         .tensor_map_kv = tensor_map_kv,

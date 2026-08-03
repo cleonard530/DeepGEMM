@@ -138,7 +138,9 @@ public:
     template <typename Args>
     static void launch(const std::shared_ptr<KernelRuntime>& kernel_runtime, const Args& args) {
         const auto kernel = kernel_runtime->kernel;
-        const auto stream = at::cuda::getCurrentCUDAStream();
+        // `StreamHandle` is an opaque `c10::Stream*`, not a raw `cudaStream_t`.
+        cudaStream_t stream = nullptr;
+        aoti_torch_get_current_cuda_stream(-1, reinterpret_cast<void**>(&stream));
         LaunchArgs launch_args = args.launch_args;
 
         // Allow runtime override from Python.
@@ -154,9 +156,9 @@ public:
 
         // Launch in the derived class
         if (get_env<int>("DG_JIT_DEBUG")) {
-            printf("Launch kernel with {%d, %d} x %d, shared memory: %d bytes, cluster: %d, pdl: %d, stream: %ld\n",
+            printf("Launch kernel with {%d, %d} x %d, shared memory: %d bytes, cluster: %d, pdl: %d, stream: %p\n",
                    launch_args.grid_dim.first, launch_args.grid_dim.second, launch_args.num_threads,
-                   launch_args.smem_size, launch_args.cluster_dim, launch_args.enable_pdl, stream.id());
+                   launch_args.smem_size, launch_args.cluster_dim, launch_args.enable_pdl, static_cast<const void*>(stream));
         }
         Derived::launch_impl(kernel, config, args);
     }

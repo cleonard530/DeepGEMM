@@ -1,11 +1,18 @@
 #pragma once
 
-#include <torch/all.h>
+#include <vector>
+
+#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/accelerator.h>
+#include <torch/headeronly/core/ScalarType.h>
+#include <torch/csrc/stable/device.h>
 
 #include "../utils/exception.hpp"
 #include "../utils/format.hpp"
 #include "../utils/layout.hpp"
 #include "../utils/compatibility.hpp"
+#include "../utils/torch_compat.hpp"
 #include "gemm.hpp"
 
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
@@ -18,28 +25,33 @@
 #include "../jit_kernels/impls/sm120_fp8_fp4_gemm_1d1d.hpp"
 #include "../jit_kernels/impls/smxx_cublaslt.hpp"
 #endif
-#include <torch/library.h>
+#include <torch/csrc/stable/library.h>
 #include "../torch_library_utils.hpp"
 
 namespace deep_gemm::einsum {
 
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
-static void bmk_bnk_mn(const torch::Tensor& a, const torch::Tensor& b, const torch::Tensor& d,
-                       const std::optional<torch::Tensor>& c) {
+static void bmk_bnk_mn(const torch::stable::Tensor& a, const torch::stable::Tensor& b, const torch::stable::Tensor& d,
+                       const std::optional<torch::stable::Tensor>& c) {
     // Currently FP32 only support the accumulated expression
-    if (d.scalar_type() == torch::kFloat) {
-        DG_HOST_ASSERT(c->data_ptr() == d.data_ptr() and c->sizes() == d.sizes() and c->strides() == d.strides());
+    if (d.scalar_type() == torch::headeronly::ScalarType::Float) {
+        DG_HOST_ASSERT(c->mutable_data_ptr() == d.const_data_ptr() and c->sizes().equals(d.sizes()) and c->strides().equals(d.strides()));
     } else {
-        DG_HOST_ASSERT(d.scalar_type() == torch::kBFloat16);
+        DG_HOST_ASSERT(d.scalar_type() == torch::headeronly::ScalarType::BFloat16);
         DG_HOST_ASSERT(not c.has_value());
 
-        const auto workspace = torch::empty_like(d, d.options().dtype(torch::kFloat32));
-        DG_CUDA_RUNTIME_CHECK(cudaMemsetAsync(workspace.data_ptr(), 0, workspace.nbytes(),
-                              c10::cuda::getCurrentCUDAStream()));
+        auto workspace = torch::stable::new_empty(d, d.sizes(), torch::headeronly::ScalarType::Float);
+        // `StreamHandle` is an opaque `c10::Stream*`, not a raw `cudaStream_t`.
+        cudaStream_t stream_hoisted_0 = nullptr;
+        aoti_torch_get_current_cuda_stream(-1, reinterpret_cast<void**>(&stream_hoisted_0));
+        const auto workspace_nbytes = static_cast<size_t>(workspace.numel()) * workspace.element_size();
+        DG_CUDA_RUNTIME_CHECK(cudaMemsetAsync(workspace.mutable_data_ptr(), 0, workspace_nbytes,
+                              stream_hoisted_0));
         bmk_bnk_mn(a, b, workspace, workspace);
 
-        // This line has an implicit FP32-to-BF16 casting
-        d.copy_(workspace);
+        // `copy_` needs a non-const handle; `d` is a const ref but the copy is cheap.
+        auto d_mut = d;
+        torch::stable::copy_(d_mut, workspace);
         return;
     }
 
@@ -64,15 +76,15 @@ static void bmk_bnk_mn(const torch::Tensor& a, const torch::Tensor& b, const tor
     }
 }
 
-static void bhr_hdr_bhd(const torch::Tensor& A, const torch::Tensor& B, const torch::Tensor& D, const bool& use_cublaslt) {
+static void bhr_hdr_bhd(const torch::stable::Tensor& A, const torch::stable::Tensor& B, const torch::stable::Tensor& D, const bool& use_cublaslt) {
     const auto [b , h  , r ] = get_shape<3>(A);
     const auto [h_, d  , r_] = get_shape<3>(B);
     const auto [b_, h__, d_] = get_shape<3>(D);
     DG_HOST_ASSERT(b == b_ and h == h_ and r == r_ and d == d_ and h == h__);
 
-    DG_HOST_ASSERT(A.scalar_type() == torch::kBFloat16 and A.stride(2) == 1);
-    DG_HOST_ASSERT(B.scalar_type() == torch::kBFloat16 and B.stride(2) == 1);
-    DG_HOST_ASSERT(D.scalar_type() == torch::kBFloat16 and D.stride(2) == 1);
+    DG_HOST_ASSERT(A.scalar_type() == torch::headeronly::ScalarType::BFloat16 and A.stride(2) == 1);
+    DG_HOST_ASSERT(B.scalar_type() == torch::headeronly::ScalarType::BFloat16 and B.stride(2) == 1);
+    DG_HOST_ASSERT(D.scalar_type() == torch::headeronly::ScalarType::BFloat16 and D.stride(2) == 1);
 
     // Dispatch implementation
     const auto arch_major = device_runtime->get_arch_major();
@@ -89,15 +101,15 @@ static void bhr_hdr_bhd(const torch::Tensor& A, const torch::Tensor& B, const to
     }
 }
 
-static void bhd_hdr_bhr(const torch::Tensor& A, const torch::Tensor& B, const torch::Tensor& D, const bool& use_cublaslt) {
+static void bhd_hdr_bhr(const torch::stable::Tensor& A, const torch::stable::Tensor& B, const torch::stable::Tensor& D, const bool& use_cublaslt) {
     const auto [b , h  , d ] = get_shape<3>(A);
     const auto [h_, d_ , r ] = get_shape<3>(B);
     const auto [b_, h__, r_] = get_shape<3>(D);
     DG_HOST_ASSERT(b == b_ and h == h_ and r == r_ and d == d_ and h == h__);
 
-    DG_HOST_ASSERT(A.scalar_type() == torch::kBFloat16 and A.stride(2) == 1);
-    DG_HOST_ASSERT(B.scalar_type() == torch::kBFloat16 and B.stride(2) == 1);
-    DG_HOST_ASSERT(D.scalar_type() == torch::kBFloat16 and D.stride(2) == 1);
+    DG_HOST_ASSERT(A.scalar_type() == torch::headeronly::ScalarType::BFloat16 and A.stride(2) == 1);
+    DG_HOST_ASSERT(B.scalar_type() == torch::headeronly::ScalarType::BFloat16 and B.stride(2) == 1);
+    DG_HOST_ASSERT(D.scalar_type() == torch::headeronly::ScalarType::BFloat16 and D.stride(2) == 1);
 
     // Dispatch implementation
     const auto arch_major = device_runtime->get_arch_major();
@@ -115,14 +127,14 @@ static void bhd_hdr_bhr(const torch::Tensor& A, const torch::Tensor& B, const to
 }
 
 static void einsum(const std::string& expr,
-                   const torch::Tensor& a,
-                   const torch::Tensor& b,
-                   const torch::Tensor& d,
-                   const std::optional<torch::Tensor>& c,
+                   const torch::stable::Tensor& a,
+                   const torch::stable::Tensor& b,
+                   const torch::stable::Tensor& d,
+                   const std::optional<torch::stable::Tensor>& c,
                    const bool& use_cublaslt) {
-    DG_HOST_ASSERT(a.scalar_type() == torch::kBFloat16);
-    DG_HOST_ASSERT(b.scalar_type() == torch::kBFloat16);
-    DG_HOST_ASSERT(d.scalar_type() == torch::kBFloat16 or d.scalar_type() == torch::kFloat);
+    DG_HOST_ASSERT(a.scalar_type() == torch::headeronly::ScalarType::BFloat16);
+    DG_HOST_ASSERT(b.scalar_type() == torch::headeronly::ScalarType::BFloat16);
+    DG_HOST_ASSERT(d.scalar_type() == torch::headeronly::ScalarType::BFloat16 or d.scalar_type() == torch::headeronly::ScalarType::Float);
     if (c.has_value()) {
         DG_HOST_ASSERT(d.scalar_type() == c->scalar_type());
     }
@@ -144,10 +156,10 @@ static void einsum(const std::string& expr,
     }
 }
 
-static void fp8_bmm(const torch::Tensor& a, const torch::Tensor& sfa,
-                    const torch::Tensor& b, const torch::Tensor& sfb,
-                    const torch::Tensor& d,
-                    const std::optional<torch::Tensor>& c,
+static void fp8_bmm(const torch::stable::Tensor& a, const torch::stable::Tensor& sfa,
+                    const torch::stable::Tensor& b, const torch::stable::Tensor& sfb,
+                    const torch::stable::Tensor& d,
+                    const std::optional<torch::stable::Tensor>& c,
                     std::optional<std::tuple<int, int, int>> recipe,
                     const std::string& compiled_dims) {
     // Shape must be `[B, M, K] @ [B, N, K].T`
@@ -163,9 +175,9 @@ static void fp8_bmm(const torch::Tensor& a, const torch::Tensor& sfa,
     const auto [batch_size__, m_, n_] = get_shape<3>(d);
     DG_HOST_ASSERT(batch_size == batch_size_ and batch_size == batch_size__);
     DG_HOST_ASSERT(m == m_ and n == n_ and k == k_);
-    DG_HOST_ASSERT(a.scalar_type() == torch::kFloat8_e4m3fn);
-    DG_HOST_ASSERT(b.scalar_type() == torch::kFloat8_e4m3fn);
-    DG_HOST_ASSERT(d.scalar_type() == torch::kBFloat16 or d.scalar_type() == torch::kFloat);
+    DG_HOST_ASSERT(a.scalar_type() == torch::headeronly::ScalarType::Float8_e4m3fn);
+    DG_HOST_ASSERT(b.scalar_type() == torch::headeronly::ScalarType::Float8_e4m3fn);
+    DG_HOST_ASSERT(d.scalar_type() == torch::headeronly::ScalarType::BFloat16 or d.scalar_type() == torch::headeronly::ScalarType::Float);
 
     // Early return for trivial cases
     if (batch_size == 0 or gemm::early_return(m, n, k, d, c))
@@ -223,44 +235,44 @@ static void fp8_bmm(const torch::Tensor& a, const torch::Tensor& sfa,
 }
 
 static void fp8_einsum(const std::string& expr,
-                       const std::pair<torch::Tensor, torch::Tensor>& a,
-                       const std::pair<torch::Tensor, torch::Tensor>& b,
-                       const torch::Tensor& d,
-                       const std::optional<torch::Tensor>& c,
+                       const std::pair<torch::stable::Tensor, torch::stable::Tensor>& a,
+                       const std::pair<torch::stable::Tensor, torch::stable::Tensor>& b,
+                       const torch::stable::Tensor& d,
+                       const std::optional<torch::stable::Tensor>& c,
                        const std::tuple<int, int, int>& recipe) {
     // Some hardcoded Einstein sum kernels
     const auto arch_major = device_runtime->get_arch_major();
     if (expr == "bhr,hdr->bhd") {
         // Permute dims to satisfy the order of (batch_size, m, n, k)
         // (batch_size, m, n, k): (h, b, d, r)
-        const auto perm_a = a.first.permute({1, 0, 2});
-        const auto perm_sfa = a.second.permute({1, 0, 2});
-        const auto perm_d = d.permute({1, 0, 2});
-        const auto perm_c = c.has_value() ? std::make_optional(c.value().permute({1, 0, 2})) : std::nullopt;
+        const auto perm_a = torch_compat::permute(a.first, {1, 0, 2});
+        const auto perm_sfa = torch_compat::permute(a.second, {1, 0, 2});
+        const auto perm_d = torch_compat::permute(d, {1, 0, 2});
+        const auto perm_c = c.has_value() ? std::make_optional(torch_compat::permute(c.value(), {1, 0, 2})) : std::nullopt;
         fp8_bmm(perm_a, perm_sfa, b.first, b.second, perm_d, perm_c, recipe, "nk");
     } else if (expr == "bhd,hdr->bhr") {
         // (batch_size, m, n, k): (h, b, r, d)
-        const auto perm_a = a.first.permute({1, 0, 2});
-        const auto perm_sfa = a.second.permute({1, 0, 2});
-        auto perm_b = b.first.permute({0, 2, 1});
-        auto perm_sfb = b.second.permute({0, 2, 1});
+        const auto perm_a = torch_compat::permute(a.first, {1, 0, 2});
+        const auto perm_sfa = torch_compat::permute(a.second, {1, 0, 2});
+        auto perm_b = torch_compat::permute(b.first, {0, 2, 1});
+        auto perm_sfb = torch_compat::permute(b.second, {0, 2, 1});
         // SM120: B is MN-major after permute; .contiguous() to K-major (scalar MN-major path ~3x slower).
         if (arch_major == 12) {
-            perm_b = perm_b.contiguous();
+            perm_b = torch::stable::contiguous(perm_b);
         }
-        const auto perm_d = d.permute({1, 0, 2});
-        const auto perm_c = c.has_value() ? std::make_optional(c.value().permute({1, 0, 2})) : std::nullopt;
+        const auto perm_d = torch_compat::permute(d, {1, 0, 2});
+        const auto perm_c = c.has_value() ? std::make_optional(torch_compat::permute(c.value(), {1, 0, 2})) : std::nullopt;
         fp8_bmm(perm_a, perm_sfa, perm_b, perm_sfb, perm_d, perm_c, recipe, "nk");
     } else if (expr == "bhd,bhr->hdr") {
         // (batch_size, m, n, k): (h, d, r, b)
-        auto perm_a = a.first.permute({1, 2, 0});
-        auto perm_sfa = a.second.permute({1, 2, 0});
-        auto perm_b = b.first.permute({1, 2, 0});
-        auto perm_sfb = b.second.permute({1, 2, 0});
+        auto perm_a = torch_compat::permute(a.first, {1, 2, 0});
+        auto perm_sfa = torch_compat::permute(a.second, {1, 2, 0});
+        auto perm_b = torch_compat::permute(b.first, {1, 2, 0});
+        auto perm_sfb = torch_compat::permute(b.second, {1, 2, 0});
         // SM120: A/B MN-major after permute; force K-major (MN-major A unsupported, scalar path ~3x slower).
         if (arch_major == 12) {
-            perm_a = perm_a.contiguous();
-            perm_b = perm_b.contiguous();
+            perm_a = torch::stable::contiguous(perm_a);
+            perm_b = torch::stable::contiguous(perm_b);
         }
         fp8_bmm(perm_a, perm_sfa, perm_b, perm_sfb, d, c, recipe, "mn");
     } else {
@@ -277,16 +289,16 @@ using namespace deep_gemm::torch_utils;
 
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
 static void einsum(const std::string& expr,
-                   const torch::Tensor& a, const torch::Tensor& b,
-                   const torch::Tensor& d, const c10::optional<torch::Tensor>& c,
+                   const torch::stable::Tensor& a, const torch::stable::Tensor& b,
+                   const torch::stable::Tensor& d, const std::optional<torch::stable::Tensor>& c,
                    const bool& use_cublaslt) {
     einsum::einsum(expr, a, b, d, c, use_cublaslt);
 }
 
 static void fp8_einsum(const std::string& expr,
-                       const torch::Tensor& a, const torch::Tensor& sfa,
-                       const torch::Tensor& b, const torch::Tensor& sfb,
-                       const torch::Tensor& d, const c10::optional<torch::Tensor>& c,
+                       const torch::stable::Tensor& a, const torch::stable::Tensor& sfa,
+                       const torch::stable::Tensor& b, const torch::stable::Tensor& sfb,
+                       const torch::stable::Tensor& d, const std::optional<torch::stable::Tensor>& c,
                        const std::vector<int64_t>& recipe) {
     einsum::fp8_einsum(expr, {a, sfa}, {b, sfb}, d, c, list_to_tuple3(recipe));
 }
@@ -294,7 +306,7 @@ static void fp8_einsum(const std::string& expr,
 
 }  // namespace deep_gemm::torch_registration
 
-TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
+STABLE_TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
     m.def(
         "einsum(str expr, Tensor a, Tensor b, Tensor(d!) d, Tensor? c=None, bool use_cublaslt=False) -> ()");
@@ -303,11 +315,11 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
 #endif
 }
 
-TORCH_LIBRARY_IMPL(deep_gemm, CUDA, m) {
+STABLE_TORCH_LIBRARY_IMPL(deep_gemm, CUDA, m) {
     using namespace deep_gemm::torch_registration;
 
 #if DG_FP8_COMPATIBLE and DG_TENSORMAP_COMPATIBLE
-    m.impl("einsum", TORCH_FN(einsum));
-    m.impl("fp8_einsum", TORCH_FN(fp8_einsum));
+    m.impl("einsum", TORCH_BOX(&einsum));
+    m.impl("fp8_einsum", TORCH_BOX(&fp8_einsum));
 #endif
 }
