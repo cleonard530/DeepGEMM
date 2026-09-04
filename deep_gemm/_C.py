@@ -263,7 +263,8 @@ _bind_guarded_ops(
 def fp8_fp4_mega_moe(y, l1_weights, l2_weights, shared_l1_weights, shared_l2_weights,
                      cumulative_local_expert_recv_stats, sym_buffer,
                      sym_buffer_ptrs, rank_idx, num_max_tokens_per_rank, num_experts, num_topk, recipe,
-                     activation, activation_clamp, fast_math):
+                     activation, activation_clamp, fast_math,
+                     situ_beta=None, situ_linear_beta=None):
     shared_l1_w = shared_l1_sf = shared_l2_w = shared_l2_sf = None
     if shared_l1_weights is not None:
         shared_l1_w, shared_l1_sf = shared_l1_weights
@@ -273,7 +274,25 @@ def fp8_fp4_mega_moe(y, l1_weights, l2_weights, shared_l1_weights, shared_l2_wei
         shared_l1_w, shared_l1_sf, shared_l2_w, shared_l2_sf,
         cumulative_local_expert_recv_stats, sym_buffer, list(sym_buffer_ptrs), rank_idx,
         num_max_tokens_per_rank, num_experts, num_topk, list(recipe), activation,
-        activation_clamp, fast_math,
+        activation_clamp, fast_math, situ_beta, situ_linear_beta,
+    )
+
+
+def fp4_fp4_mega_moe(y, l1_weights, l2_weights,
+                     shared_l1_weights, shared_l2_weights, x_bf16,
+                     cumulative_local_expert_recv_stats, sym_buffer,
+                     sym_buffer_ptrs, rank_idx, num_max_tokens_per_rank,
+                     num_experts, num_topk, recipe, activation,
+                     activation_clamp, fast_math, l1_alphas, l2_alphas,
+                     a2_scales, routed_scaling_factor):
+    return _torch_ops.fp4_fp4_mega_moe(
+        y, l1_weights[0], l1_weights[1], l2_weights[0], l2_weights[1],
+        shared_l1_weights, shared_l2_weights, x_bf16,
+        cumulative_local_expert_recv_stats, sym_buffer,
+        list(sym_buffer_ptrs), rank_idx, num_max_tokens_per_rank,
+        num_experts, num_topk, list(recipe), activation,
+        activation_clamp, fast_math, l1_alphas, l2_alphas,
+        a2_scales, routed_scaling_factor,
     )
 
 
@@ -307,6 +326,7 @@ _UNCONDITIONAL_API = (
     'get_symm_buffer_size_for_mega_moe',
     '_slice_symm_buffer_for_mega_moe',
     'fp8_fp4_mega_moe',
+    'fp4_fp4_mega_moe',
     'bf16_mega_moe',
 )
 
