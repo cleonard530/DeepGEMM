@@ -219,8 +219,8 @@ using SymmBufferSlice = std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tenso
 static SymmBufferSlice slice_symm_buffer_from_layout(
     const torch::Tensor& buffer, const SymmBufferLayoutInfo& layout_info) {
     // NOTES: `x_sf` is K-major, while `l1_acts_sf` and `l2_acts_sf` are M-major
-    // NVFP4 token views pack two E2M1 elements per byte, while SF views pack
-    // four E4M3 values per int32.
+    // NOTES: for NVFP4, token views are packed E2M1 bytes (2 elements each) and SF
+    // views pack 4 E4M3 bytes per `int`
     const bool is_fp4 = layout_info.mma_kind == MmaKind::NVFP4;
     const auto token_dtype = is_fp4
         ? torch::kUInt8
@@ -590,7 +590,6 @@ static void fp4_fp4_mega_moe(
         a2_scales_ptr = a2_scales.data_ptr();
     }
 
-    // Already registered tensors
     const auto [x, x_sf, topk_idx, topk_weights,
                 shared_l1_acts, shared_l1_acts_sf, shared_l2_acts, shared_l2_acts_sf,
                 l1_acts, l1_acts_sf, l2_acts, l2_acts_sf] =
