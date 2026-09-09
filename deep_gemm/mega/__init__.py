@@ -85,7 +85,7 @@ class SM90SymmBuffer:
         self.hidden = hidden
         self.intermediate_hidden = intermediate_hidden
 
-        num_bytes, slice_input_buffers = _C.get_symm_buffer_size_for_sm90_mega_moe(
+        num_bytes, layout_info = _C.get_symm_buffer_size_for_sm90_mega_moe(
             group.size(), num_experts,
             num_max_tokens_per_rank, num_topk,
             hidden, intermediate_hidden,
@@ -105,7 +105,8 @@ class SM90SymmBuffer:
         (self.x, self.x_sf,
          self.topk_idx, self.topk_weights,
          self.l1_acts, self.l1_acts_sf,
-         self.l2_acts, self.l2_acts_sf) = slice_input_buffers(self.buffer)
+         self.l2_acts, self.l2_acts_sf) = _C._slice_symm_buffer_for_sm90_mega_moe(
+             self.buffer, layout_info)
 
     def destroy(self):
         self.handle = None

@@ -253,11 +253,22 @@ def _slice_symm_buffer_for_mega_moe(buffer, *args, **kwargs):
     return _torch_ops._slice_symm_buffer_for_mega_moe(buffer, *args, **kwargs)
 
 
+def get_symm_buffer_size_for_sm90_mega_moe(*args, **kwargs):
+    return _torch_ops.get_symm_buffer_size_for_sm90_mega_moe(*args, **kwargs)
+
+
+def _slice_symm_buffer_for_sm90_mega_moe(buffer, *args, **kwargs):
+    return _torch_ops._slice_symm_buffer_for_sm90_mega_moe(buffer, *args, **kwargs)
+
+
 # DG_TENSORMAP_COMPATIBLE — mega.hpp (C++ impl conditional; matches legacy pybind export guard)
 _bind_guarded_ops(
     'get_token_alignment_for_mega_moe',
     'get_block_m_for_mega_moe',
 )
+
+# DG_TENSORMAP_COMPATIBLE — sm90_mega.hpp
+_bind_guarded_ops('get_token_alignment_for_sm90_mega_moe')
 
 
 def fp8_fp4_mega_moe(y, l1_weights, l2_weights, shared_l1_weights, shared_l2_weights,
@@ -308,6 +319,20 @@ def bf16_mega_moe(y, l1_weights, l2_weights, shared_l1_weights, shared_l2_weight
     )
 
 
+def fp8_mega_moe(y, l1_weights, l2_weights,
+                 cumulative_local_expert_recv_stats, sym_buffer,
+                 sym_buffer_ptrs, rank_idx, num_max_tokens_per_rank,
+                 num_experts, num_topk, recipe, activation,
+                 activation_clamp, fast_math):
+    return _torch_ops.fp8_mega_moe(
+        y, l1_weights[0], l1_weights[1], l2_weights[0], l2_weights[1],
+        cumulative_local_expert_recv_stats, sym_buffer,
+        list(sym_buffer_ptrs), rank_idx, num_max_tokens_per_rank,
+        num_experts, num_topk, list(recipe), activation,
+        activation_clamp, fast_math,
+    )
+
+
 _UNCONDITIONAL_API = (
     # Runtime
     'init',
@@ -325,9 +350,12 @@ _UNCONDITIONAL_API = (
     # Mega MoE (imported via deep_gemm.mega; always defined, fails at call if unregistered)
     'get_symm_buffer_size_for_mega_moe',
     '_slice_symm_buffer_for_mega_moe',
+    'get_symm_buffer_size_for_sm90_mega_moe',
+    '_slice_symm_buffer_for_sm90_mega_moe',
     'fp8_fp4_mega_moe',
     'fp4_fp4_mega_moe',
     'bf16_mega_moe',
+    'fp8_mega_moe',
 )
 
 _DEEP_GEMM_API = (
@@ -372,6 +400,7 @@ _DEEP_GEMM_API = (
     # Mega helpers (guarded)
     'get_token_alignment_for_mega_moe',
     'get_block_m_for_mega_moe',
+    'get_token_alignment_for_sm90_mega_moe',
 )
 
 __all__ = list(_UNCONDITIONAL_API) + [name for name in _DEEP_GEMM_API if name in globals()]
