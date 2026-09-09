@@ -286,9 +286,9 @@ static SymmBufferSlice slice_symm_buffer_from_layout(
         {layout_info.num_sf_ring_tokens, intermediate_sf_cols},
         {1, layout_info.num_sf_ring_tokens},
         torch::TensorOptions().dtype(torch::kInt).device(buffer.device())) : torch::Tensor();
-    return std::make_tuple(x, x_sf, topk_idx, topk_weights,
-                           shared_l1_acts, shared_l1_acts_sf, shared_l2_acts, shared_l2_acts_sf,
-                           l1_acts, l1_acts_sf, l2_acts, l2_acts_sf);
+    return {x, x_sf, topk_idx, topk_weights,
+            shared_l1_acts, shared_l1_acts_sf, shared_l2_acts, shared_l2_acts_sf,
+            l1_acts, l1_acts_sf, l2_acts, l2_acts_sf};
 }
 
 static void fp8_fp4_mega_moe(
