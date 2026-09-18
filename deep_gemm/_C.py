@@ -56,15 +56,6 @@ def _unpack_ab_pair(a, b):
     return a[0], a[1], b[0], b[1]
 
 
-def _unpack_q(q):
-    if isinstance(q, (tuple, list)):
-        q_fp = q[0]
-        q_sf = q[1] if len(q) > 1 else None
-    else:
-        q_fp, q_sf = q, None
-    return q_fp, q_sf
-
-
 def _unpack_kv(kv):
     return kv[0], kv[1]
 
@@ -163,7 +154,7 @@ def _register_deep_gemm_kernels():
 
     def fp8_fp4_mqa_logits(q, kv, weights, cu_seq_len_k_start, cu_seq_len_k_end, clean_logits=True,
                            max_seqlen_k=0, logits_dtype=torch.float32, schedule_meta=None):
-        q_fp, q_sf = _unpack_q(q)
+        q_fp, q_sf = q[0], q[1]
         kv_fp, kv_sf = _unpack_kv(kv)
         return _torch_ops.fp8_fp4_mqa_logits(
             q_fp, q_sf, kv_fp, kv_sf, weights, cu_seq_len_k_start, cu_seq_len_k_end,
@@ -172,7 +163,7 @@ def _register_deep_gemm_kernels():
 
     def fp8_fp4_paged_mqa_logits(q, kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len,
                                  clean_logits=False, logits_dtype=torch.float32, indices=None):
-        q_fp, q_sf = _unpack_q(q)
+        q_fp, q_sf = q[0], q[1]
         return _torch_ops.fp8_fp4_paged_mqa_logits(
             q_fp, q_sf, kv_cache, weights, context_lens, block_table, schedule_meta, max_context_len,
             clean_logits, logits_dtype, indices,
@@ -557,4 +548,75 @@ Runtime = torch.classes.deep_gemm.Runtime
 get_jit = _torch_ops.get_jit
 
 
-__all__ = [name for name in globals() if not name.startswith('_') and name not in ('torch', 'Path')]
+_PUBLIC_API = [
+    # Runtime and configuration
+    'Runtime', 'get_jit', 'init',
+    'set_num_sms', 'get_num_sms',
+    'set_tc_util', 'get_tc_util',
+    'set_pdl', 'get_pdl',
+    'use_deterministic_algorithms',
+    'set_ignore_compile_dims',
+    'set_block_size_multiple_of',
+    'set_mk_alignment_for_contiguous_layout',
+    'get_mk_alignment_for_contiguous_layout',
+    'get_theoretical_mk_alignment_for_contiguous_layout',
+    # cuBLASLt kernels
+    'cublaslt_gemm_nt', 'cublaslt_gemm_nn',
+    'cublaslt_gemm_tn', 'cublaslt_gemm_tt',
+    'cublaslt_nvfp4_gemm_nt',
+    'batched_syrk', 'batched_symm',
+    # Mega kernels
+    'mega_mhc',
+    'get_token_alignment_for_mega_moe',
+    'get_block_m_for_mega_moe',
+    'get_symm_buffer_size_for_mega_moe',
+    'fp8_fp4_mega_moe', 'bf16_mega_moe',
+    'get_bf16_mega_gate_config', 'bf16_mega_gate',
+    # FP8/FP4 GEMMs
+    'fp8_fp4_gemm_nt', 'fp8_fp4_gemm_nn',
+    'fp8_fp4_gemm_tn', 'fp8_fp4_gemm_tt',
+    'fp8_gemm_nt', 'fp8_gemm_nn',
+    'fp8_gemm_tn', 'fp8_gemm_tt',
+    'fp4_gemm_nt',
+    'm_grouped_fp8_fp4_gemm_nt_contiguous',
+    'm_grouped_fp8_fp4_gemm_nn_contiguous',
+    'm_grouped_fp8_fp4_gemm_nt_masked',
+    'm_grouped_fp8_gemm_nt_contiguous',
+    'm_grouped_fp8_gemm_nn_contiguous',
+    'm_grouped_fp8_gemm_nt_masked',
+    'm_grouped_fp4_gemm_nt_contiguous',
+    'm_grouped_fp4_gemm_nt_masked',
+    'k_grouped_fp8_gemm_tn_contiguous',
+    'k_grouped_fp8_gemm_nt_contiguous',
+    'k_grouped_fp4_gemm_nt_contiguous',
+    'fp8_gemm_nt_skip_head_mid',
+    # BF16 GEMMs
+    'bf16_gemm_nt', 'bf16_gemm_nn',
+    'bf16_gemm_tn', 'bf16_gemm_tt',
+    'm_grouped_bf16_gemm_nt_contiguous',
+    'm_grouped_bf16_gemm_nn_contiguous',
+    'm_grouped_bf16_gemm_nt_masked',
+    'k_grouped_bf16_gemm_tn_contiguous',
+    # Einsum
+    'einsum', 'fp8_einsum',
+    # Attention
+    'fp8_fp4_mqa_logits',
+    'get_mqa_logits_metadata',
+    'get_paged_mqa_logits_metadata',
+    'get_sparse_mqa_logits_metadata',
+    'get_paged_sparse_mqa_logits_metadata',
+    'fp8_fp4_sparse_mqa_logits',
+    'fp8_fp4_paged_sparse_mqa_logits',
+    'fp8_fp4_paged_mqa_logits',
+    'fp8_mqa_logits', 'fp8_paged_mqa_logits',
+    # Hyperconnection
+    'tf32_hc_prenorm_gemm',
+    # Layout
+    'transform_sf_into_required_layout',
+    'get_tma_aligned_size',
+    'get_mn_major_tma_aligned_tensor',
+    'get_mn_major_tma_aligned_packed_ue8m0_tensor',
+    'get_k_grouped_mn_major_tma_aligned_packed_ue8m0_tensor',
+]
+
+__all__ = _PUBLIC_API
