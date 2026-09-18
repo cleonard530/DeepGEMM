@@ -21,7 +21,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
-include_directories(csrc/torch_library_compat deep_gemm/include third-party/deep_jit/include third-party/cutlass/include third-party/cutlass/tools/util/include)
+include_directories(deep_gemm/include third-party/deep_jit/include third-party/cutlass/include third-party/cutlass/tools/util/include)
 include_directories(${CUDA_TOOLKIT_ROOT_DIR}/include/cccl ${TORCH_INCLUDE_DIRS})
 link_directories(${TORCH_INSTALL_PREFIX}/lib ${CUDA_TOOLKIT_ROOT_DIR}/lib64 ${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs)
 
