@@ -193,9 +193,9 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
     m.def("get_tma_aligned_size(int x, int element_size) -> int", TORCH_FN(deep_gemm::torch_registration::get_tma_aligned_size));
     m.def("get_mn_major_tma_aligned_tensor(Tensor(a) sf) -> Tensor(a)");
     m.def(
-        "get_mn_major_tma_aligned_packed_ue8m0_tensor(Tensor(a) sf, Tensor? psum_layout=None) -> Tensor(a)");
+        "get_mn_major_tma_aligned_packed_ue8m0_tensor(Tensor sf, Tensor? psum_layout=None) -> Tensor");
     m.def(
-        "get_k_grouped_mn_major_tma_aligned_packed_ue8m0_tensor(Tensor(a) sf, Tensor grouped_layout, int[]? ks_cpu, int gran_k, int k_alignment, bool use_psum_layout=False) -> Tensor(a)");
+        "get_k_grouped_mn_major_tma_aligned_packed_ue8m0_tensor(Tensor sf, Tensor grouped_layout, int[]? ks_cpu, int gran_k, int k_alignment, bool use_psum_layout=False) -> Tensor");
 
     m.def("set_mk_alignment_for_contiguous_layout(int new_value) -> ()",
           TORCH_FN(deep_gemm::torch_registration::set_mk_alignment_for_contiguous_layout));

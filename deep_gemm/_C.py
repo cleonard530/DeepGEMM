@@ -533,7 +533,7 @@ def get_symm_buffer_size_for_mega_moe(
     intermediate_hidden,
     mma_type,
     activation,
-    num_shared_experts=0,
+    num_shared_experts,
 ):
     num_bytes, layout_info = _torch_ops.get_symm_buffer_size_for_mega_moe(
         num_ranks,
