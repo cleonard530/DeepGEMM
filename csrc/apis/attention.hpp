@@ -774,20 +774,20 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
         "fp8_gemm_nt_skip_head_mid(Tensor a, Tensor sfa, Tensor b, Tensor sfb, Tensor(d!) d, int[3] head_splits, int[3]? recipe=None, str compiled_dims='nk', bool disable_ue8m0_cast=False) -> ()");
     m.def(
         "fp8_fp4_mqa_logits(Tensor q, Tensor? q_sf, Tensor kv, Tensor kv_sf, Tensor weights, Tensor cu_seq_len_k_start, Tensor cu_seq_len_k_end, bool clean_logits=True, int max_seqlen_k=0, ScalarType logits_dtype=float, Tensor? schedule_meta=None) -> Tensor");
-    m.def(
-        "get_paged_mqa_logits_metadata(Tensor context_lens, int block_kv, int num_sms, Tensor? indices=None) -> Tensor");
-    m.def(
-        "fp8_fp4_paged_mqa_logits(Tensor q, Tensor? q_sf, Tensor kv_cache, Tensor weights, Tensor context_lens, Tensor block_table, Tensor schedule_meta, int max_context_len, bool clean_logits=False, ScalarType logits_dtype=float, Tensor? indices=None) -> Tensor");
-    m.def(
-        "fp8_mqa_logits(Tensor q, Tensor kv, Tensor kv_sf, Tensor weights, Tensor cu_seq_len_k_start, Tensor cu_seq_len_k_end, bool clean_logits=True, int max_seqlen_k=0) -> Tensor");
-    m.def(
-        "fp8_paged_mqa_logits(Tensor q, Tensor kv_cache, Tensor weights, Tensor context_lens, Tensor block_table, Tensor schedule_meta, int max_context_len, bool clean_logits=False, Tensor? indices=None) -> Tensor");
-
     m.def("get_mqa_logits_metadata(Tensor cu_seq_len_k_start, Tensor cu_seq_len_k_end, int num_kv_tokens, int num_heads) -> Tensor");
     m.def("get_sparse_mqa_logits_metadata(Tensor cu_seq_len_k_start, Tensor cu_seq_len_k_end, int num_kv_tokens, Tensor sparse_kv_block_indices, ScalarType qk_dtype, int sparse_block_kv, bool use_unaligned_ks=False) -> Tensor");
     m.def("get_paged_sparse_mqa_logits_metadata(Tensor context_lens, Tensor block_table, Tensor indices, int page_kv, Tensor sparse_kv_block_indices, ScalarType qk_dtype, int sparse_block_kv) -> Tensor");
     m.def("fp8_fp4_sparse_mqa_logits(Tensor q, Tensor? q_sf, Tensor kv, Tensor kv_sf, Tensor weights, Tensor metadata, int num_max_sparse_blocks, int sparse_block_kv, bool use_unaligned_ks=False) -> Tensor");
     m.def("fp8_fp4_paged_sparse_mqa_logits(Tensor q, Tensor? q_sf, Tensor fused_kv_cache, Tensor weights, Tensor metadata, int num_max_sparse_blocks, int sparse_block_kv) -> Tensor");
+    m.def(
+        "get_paged_mqa_logits_metadata(Tensor context_lens, int block_kv, int num_sms, Tensor? indices=None) -> Tensor");
+    m.def(
+        "fp8_fp4_paged_mqa_logits(Tensor q, Tensor? q_sf, Tensor kv_cache, Tensor weights, Tensor context_lens, Tensor block_table, Tensor schedule_meta, int max_context_len, bool clean_logits=False, ScalarType logits_dtype=float, Tensor? indices=None) -> Tensor");
+    // Legacy API
+    m.def(
+        "fp8_mqa_logits(Tensor q, Tensor kv, Tensor kv_sf, Tensor weights, Tensor cu_seq_len_k_start, Tensor cu_seq_len_k_end, bool clean_logits=True, int max_seqlen_k=0) -> Tensor");
+    m.def(
+        "fp8_paged_mqa_logits(Tensor q, Tensor kv_cache, Tensor weights, Tensor context_lens, Tensor block_table, Tensor schedule_meta, int max_context_len, bool clean_logits=False, Tensor? indices=None) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(deep_gemm, CUDA, m) {
@@ -795,14 +795,14 @@ TORCH_LIBRARY_IMPL(deep_gemm, CUDA, m) {
 
     m.impl("fp8_gemm_nt_skip_head_mid", TORCH_FN(fp8_gemm_nt_skip_head_mid));
     m.impl("fp8_fp4_mqa_logits", TORCH_FN(fp8_fp4_mqa_logits));
-    m.impl("get_paged_mqa_logits_metadata", TORCH_FN(get_paged_mqa_logits_metadata));
-    m.impl("fp8_fp4_paged_mqa_logits", TORCH_FN(fp8_fp4_paged_mqa_logits));
-    m.impl("fp8_mqa_logits", TORCH_FN(fp8_mqa_logits));
-    m.impl("fp8_paged_mqa_logits", TORCH_FN(fp8_paged_mqa_logits));
-
     m.impl("get_mqa_logits_metadata", TORCH_FN(deep_gemm::torch_registration::get_mqa_logits_metadata));
     m.impl("get_sparse_mqa_logits_metadata", TORCH_FN(deep_gemm::torch_registration::get_sparse_mqa_logits_metadata));
     m.impl("get_paged_sparse_mqa_logits_metadata", TORCH_FN(deep_gemm::torch_registration::get_paged_sparse_mqa_logits_metadata));
     m.impl("fp8_fp4_sparse_mqa_logits", TORCH_FN(deep_gemm::torch_registration::fp8_fp4_sparse_mqa_logits));
     m.impl("fp8_fp4_paged_sparse_mqa_logits", TORCH_FN(deep_gemm::torch_registration::fp8_fp4_paged_sparse_mqa_logits));
+    m.impl("get_paged_mqa_logits_metadata", TORCH_FN(get_paged_mqa_logits_metadata));
+    m.impl("fp8_fp4_paged_mqa_logits", TORCH_FN(fp8_fp4_paged_mqa_logits));
+    // Legacy API
+    m.impl("fp8_mqa_logits", TORCH_FN(fp8_mqa_logits));
+    m.impl("fp8_paged_mqa_logits", TORCH_FN(fp8_paged_mqa_logits));
 }
