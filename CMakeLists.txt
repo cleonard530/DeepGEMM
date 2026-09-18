@@ -14,7 +14,6 @@ set(CUDA_ARCH_LIST "9.0" CACHE STRING "List of CUDA architectures to compile")
 set(TORCH_CUDA_ARCH_LIST "${CUDA_ARCH_LIST}")
 
 find_package(CUDAToolkit REQUIRED)
-find_package(pybind11 REQUIRED)
 find_package(Torch REQUIRED)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -27,8 +26,10 @@ include_directories(${CUDA_TOOLKIT_ROOT_DIR}/include/cccl ${TORCH_INCLUDE_DIRS} 
 link_directories(${TORCH_INSTALL_PREFIX}/lib ${CUDA_TOOLKIT_ROOT_DIR}/lib64 ${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs)
 
 # The main Python API entrance
-pybind11_add_module(_C_extension csrc/python_api.cpp)
-target_link_libraries(_C_extension PRIVATE ${TORCH_LIBRARIES} torch_python)
+add_library(_C_extension MODULE csrc/python_api.cpp)
+set_target_properties(_C_extension PROPERTIES PREFIX "")
+target_compile_definitions(_C_extension PRIVATE TORCH_TARGET_VERSION=0x020d000000000000 USE_CUDA)
+target_link_libraries(_C_extension PRIVATE ${TORCH_LIBRARIES} CUDA::cudart)
 
 # Enable kernel code indexing with CMake-based IDEs
 cuda_add_library(deep_gemm_indexing_cuda STATIC csrc/indexing/main.cu)
