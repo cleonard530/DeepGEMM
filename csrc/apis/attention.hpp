@@ -779,7 +779,7 @@ TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
     m.def("get_sparse_mqa_logits_metadata(Tensor cu_seq_len_k_start, Tensor cu_seq_len_k_end, int num_kv_tokens, Tensor sparse_kv_block_indices, ScalarType qk_dtype, int sparse_block_kv, bool use_unaligned_ks=False) -> Tensor");
     m.def("get_paged_sparse_mqa_logits_metadata(Tensor context_lens, Tensor block_table, Tensor indices, int page_kv, Tensor sparse_kv_block_indices, ScalarType qk_dtype, int sparse_block_kv) -> Tensor");
     m.def("fp8_fp4_sparse_mqa_logits(Tensor q, Tensor? q_sf, Tensor kv, Tensor kv_sf, Tensor weights, Tensor metadata, int num_max_sparse_blocks, int sparse_block_kv, bool use_unaligned_ks=False) -> Tensor");
-    m.def("fp8_fp4_paged_sparse_mqa_logits(Tensor q, Tensor? q_sf, Tensor fused_kv_cache, Tensor weights, Tensor metadata, int num_max_sparse_blocks, int sparse_block_kv) -> Tensor");
+    m.def("fp8_fp4_paged_sparse_mqa_logits(Tensor q, Tensor? q_sf, Tensor kv_cache, Tensor weights, Tensor metadata, int num_max_sparse_blocks, int sparse_block_kv) -> Tensor");
     m.def(
         "get_paged_mqa_logits_metadata(Tensor context_lens, int block_kv, int num_sms, Tensor? indices=None) -> Tensor");
     m.def(
