@@ -463,7 +463,9 @@ m_grouped_fp4_gemm_nt_masked = m_grouped_fp8_fp4_gemm_nt_masked
 
 
 def get_bf16_mega_gate_config(num_tokens, hidden, num_routed_experts, num_topk):
-    return _torch_ops.get_bf16_mega_gate_config(num_tokens, hidden, num_routed_experts, num_topk)
+    values = _torch_ops._get_bf16_mega_gate_config(num_tokens, hidden, num_routed_experts, num_topk)
+    return dict(zip(('block_tokens', 'num_mma_ctas', 'num_split_k',
+                     'num_expert_groups', 'num_gate_warpgroups', 'num_sms'), values))
 
 
 def bf16_mega_gate(
@@ -544,8 +546,15 @@ def get_symm_buffer_size_for_mega_moe(
     return num_bytes, slice_input_buffers
 
 
-Runtime = torch.classes.deep_gemm.Runtime
-get_jit = _torch_ops.get_jit
+class Runtime:
+    """Opaque handle to DeepGEMM's process-local JIT runtime."""
+
+    def __init__(self):
+        _torch_ops._ensure_jit()
+
+
+def get_jit():
+    return Runtime()
 
 
 _PUBLIC_API = [
