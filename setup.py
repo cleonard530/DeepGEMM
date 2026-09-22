@@ -26,13 +26,13 @@ DG_USE_LOCAL_VERSION = int(os.getenv('DG_USE_LOCAL_VERSION', '1')) == 1
 # Compiler flags
 cxx_flags = ['-std=c++20', '-O3', '-fPIC', '-Wno-psabi', '-Wno-deprecated-declarations',
              '-DPy_LIMITED_API=0x030a0000',
+             '-DDJ_DISABLE_GIL=1',
              f'-D_GLIBCXX_USE_CXX11_ABI={int(torch.compiled_with_cxx11_abi())}']
 
 # Sources
 current_dir = os.path.dirname(os.path.realpath(__file__))
 sources = ['csrc/python_api.cpp']
 build_include_dirs = [
-    'csrc/torch_library_compat',
     f'{CUDA_HOME}/include',
     f'{CUDA_HOME}/include/cccl',
     'deep_gemm/include',
