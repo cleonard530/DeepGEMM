@@ -1,0 +1,227 @@
+Using /home/dev/.venv/bin/python
+
+{"description": "bf16_gemm_nt  m=4096 n=7168 k=2048", "first_call_s": 0.06649942696094513, "warm_s": 0.000301715576171875, "tflops": 398.58427534246135, "gbps": 347.5379074902879}
+{"description": "bf16_gemm_nt  m=4096 n=7168 k=2048", "first_call_s": 0.06561460718512535, "warm_s": 0.00030224401855468753, "tflops": 397.8873919923101, "gbps": 346.9302734307949}
+bf16_gemm_nt  m=4096 n=7168 k=2048 (trial 1/5)
+  cold first call:         66.499 ms
+  disk-cache first call:   65.615 ms
+  warm call:                302.2 us
+  throughput:              397.89 TFLOP/s
+  bandwidth:               346.93 GB/s
+
+{"description": "bf16_gemm_nt  m=4096 n=7168 k=2048", "first_call_s": 0.06516649201512337, "warm_s": 0.00030251123046875, "tflops": 397.53593313430065, "gbps": 346.6238256263085}
+{"description": "bf16_gemm_nt  m=4096 n=7168 k=2048", "first_call_s": 0.06440368853509426, "warm_s": 0.00030269241333007814, "tflops": 397.29797970476596, "gbps": 346.41634670128167}
+bf16_gemm_nt  m=4096 n=7168 k=2048 (trial 2/5)
+  cold first call:         65.166 ms
+  disk-cache first call:   64.404 ms
+  warm call:                302.7 us
+  throughput:              397.30 TFLOP/s
+  bandwidth:               346.42 GB/s
+
+{"description": "bf16_gemm_nt  m=4096 n=7168 k=2048", "first_call_s": 0.06394599564373493, "warm_s": 0.00030183917236328124, "tflops": 398.4210642588865, "gbps": 347.39559871903475}
+{"description": "bf16_gemm_nt  m=4096 n=7168 k=2048", "first_call_s": 0.06866894848644733, "warm_s": 0.0003019266662597656, "tflops": 398.30560770850855, "gbps": 347.29492859628607}
+bf16_gemm_nt  m=4096 n=7168 k=2048 (trial 3/5)
+  cold first call:         63.946 ms
+  disk-cache first call:   68.669 ms
+  warm call:                301.9 us
+  throughput:              398.31 TFLOP/s
+  bandwidth:               347.29 GB/s
+
+{"description": "bf16_gemm_nt  m=4096 n=7168 k=2048", "first_call_s": 0.06693107075989246, "warm_s": 0.00030319757080078127, "tflops": 396.63604154341107, "gbps": 345.839182428337}
+{"description": "bf16_gemm_nt  m=4096 n=7168 k=2048", "first_call_s": 0.06670908443629742, "warm_s": 0.0003029931640625, "tflops": 396.9036221001789, "gbps": 346.07249415821957}
+bf16_gemm_nt  m=4096 n=7168 k=2048 (trial 4/5)
+  cold first call:         66.931 ms
+  disk-cache first call:   66.709 ms
+  warm call:                303.0 us
+  throughput:              396.90 TFLOP/s
+  bandwidth:               346.07 GB/s
+
+{"description": "bf16_gemm_nt  m=4096 n=7168 k=2048", "first_call_s": 0.06635340861976147, "warm_s": 0.0003020225219726563, "tflops": 398.1791937320744, "gbps": 347.1847043562311}
+{"description": "bf16_gemm_nt  m=4096 n=7168 k=2048", "first_call_s": 0.06536657176911831, "warm_s": 0.0003014137573242188, "tflops": 398.98339530216623, "gbps": 347.8859124774748}
+bf16_gemm_nt  m=4096 n=7168 k=2048 (trial 5/5)
+  cold first call:         66.353 ms
+  disk-cache first call:   65.367 ms
+  warm call:                301.4 us
+  throughput:              398.98 TFLOP/s
+  bandwidth:               347.89 GB/s
+
+{"description": "fp8_gemm_nt   m=4096 n=7168 k=2048", "first_call_s": 4.181794486939907, "warm_s": 0.00017804121398925783, "tflops": 675.4564383910339, "gbps": 460.8745029392509}
+{"description": "fp8_gemm_nt   m=4096 n=7168 k=2048", "first_call_s": 0.010474476963281631, "warm_s": 0.00017821011352539063, "tflops": 674.8162711364077, "gbps": 460.437706798886}
+fp8_gemm_nt   m=4096 n=7168 k=2048 (trial 1/5)
+  cold first call:       4181.794 ms
+  disk-cache first call:   10.474 ms
+  warm call:                178.2 us
+  throughput:              674.82 TFLOP/s
+  bandwidth:               460.44 GB/s
+
+{"description": "fp8_gemm_nt   m=4096 n=7168 k=2048", "first_call_s": 4.260368146002293, "warm_s": 0.00017857107543945314, "tflops": 673.4522037908396, "gbps": 459.50698229300696}
+{"description": "fp8_gemm_nt   m=4096 n=7168 k=2048", "first_call_s": 0.009816871955990791, "warm_s": 0.00017852511596679686, "tflops": 673.6255772009496, "gbps": 459.62527768507937}
+fp8_gemm_nt   m=4096 n=7168 k=2048 (trial 2/5)
+  cold first call:       4260.368 ms
+  disk-cache first call:    9.817 ms
+  warm call:                178.5 us
+  throughput:              673.63 TFLOP/s
+  bandwidth:               459.63 GB/s
+
+{"description": "fp8_gemm_nt   m=4096 n=7168 k=2048", "first_call_s": 4.1381640918552876, "warm_s": 0.0001778419189453125, "tflops": 676.2133753458902, "gbps": 461.390972874243}
+{"description": "fp8_gemm_nt   m=4096 n=7168 k=2048", "first_call_s": 0.008485311642289162, "warm_s": 0.00017830213928222657, "tflops": 674.4679832340497, "gbps": 460.20006451027103}
+fp8_gemm_nt   m=4096 n=7168 k=2048 (trial 3/5)
+  cold first call:       4138.164 ms
+  disk-cache first call:    8.485 ms
+  warm call:                178.3 us
+  throughput:              674.47 TFLOP/s
+  bandwidth:               460.20 GB/s
+
+{"description": "fp8_gemm_nt   m=4096 n=7168 k=2048", "first_call_s": 4.143187824636698, "warm_s": 0.00017789657592773436, "tflops": 676.0056154023558, "gbps": 461.24921501205546}
+{"description": "fp8_gemm_nt   m=4096 n=7168 k=2048", "first_call_s": 0.009114265441894531, "warm_s": 0.00017864364624023437, "tflops": 673.1786258229378, "gbps": 459.3203157623388}
+fp8_gemm_nt   m=4096 n=7168 k=2048 (trial 4/5)
+  cold first call:       4143.188 ms
+  disk-cache first call:    9.114 ms
+  warm call:                178.6 us
+  throughput:              673.18 TFLOP/s
+  bandwidth:               459.32 GB/s
+
+{"description": "fp8_gemm_nt   m=4096 n=7168 k=2048", "first_call_s": 4.193111157044768, "warm_s": 0.0001781525115966797, "tflops": 675.0344590159643, "gbps": 460.58657980508247}
+{"description": "fp8_gemm_nt   m=4096 n=7168 k=2048", "first_call_s": 0.009256750345230103, "warm_s": 0.00017856927490234376, "tflops": 673.4589942965691, "gbps": 459.5116155613791}
+fp8_gemm_nt   m=4096 n=7168 k=2048 (trial 5/5)
+  cold first call:       4193.111 ms
+  disk-cache first call:    9.257 ms
+  warm call:                178.6 us
+  throughput:              673.46 TFLOP/s
+  bandwidth:               459.51 GB/s
+
+{"description": "grouped_fp8_nt groups=4 m=4480 n=4096 k=2048", "first_call_s": 5.832242663949728, "warm_s": 0.0002526413421630859, "tflops": 297.50446635721727, "gbps": 315.63505528134965}
+{"description": "grouped_fp8_nt groups=4 m=4480 n=4096 k=2048", "first_call_s": 0.002241833135485649, "warm_s": 0.0002523389434814453, "tflops": 297.8609906303532, "gbps": 316.0133069427055}
+grouped_fp8_nt groups=4 m=4480 n=4096 k=2048 (trial 1/5)
+  cold first call:       5832.243 ms
+  disk-cache first call:    2.242 ms
+  warm call:                252.3 us
+  throughput:              297.86 TFLOP/s
+  bandwidth:               316.01 GB/s
+
+{"description": "grouped_fp8_nt groups=4 m=4480 n=4096 k=2048", "first_call_s": 5.70818018913269, "warm_s": 0.00025179936218261716, "tflops": 298.49927747429683, "gbps": 316.6904924173989}
+{"description": "grouped_fp8_nt groups=4 m=4480 n=4096 k=2048", "first_call_s": 0.00203133188188076, "warm_s": 0.00025269235229492186, "tflops": 297.44441015878925, "gbps": 315.5713391235961}
+grouped_fp8_nt groups=4 m=4480 n=4096 k=2048 (trial 2/5)
+  cold first call:       5708.180 ms
+  disk-cache first call:    2.031 ms
+  warm call:                252.7 us
+  throughput:              297.44 TFLOP/s
+  bandwidth:               315.57 GB/s
+
+{"description": "grouped_fp8_nt groups=4 m=4480 n=4096 k=2048", "first_call_s": 5.686355398967862, "warm_s": 0.0002534339141845703, "tflops": 296.57407108214113, "gbps": 314.6479596330795}
+{"description": "grouped_fp8_nt groups=4 m=4480 n=4096 k=2048", "first_call_s": 0.0020052585750818253, "warm_s": 0.00025268537902832034, "tflops": 297.4526186241114, "gbps": 315.58004783119117}
+grouped_fp8_nt groups=4 m=4480 n=4096 k=2048 (trial 3/5)
+  cold first call:       5686.355 ms
+  disk-cache first call:    2.005 ms
+  warm call:                252.7 us
+  throughput:              297.45 TFLOP/s
+  bandwidth:               315.58 GB/s
+
+{"description": "grouped_fp8_nt groups=4 m=4480 n=4096 k=2048", "first_call_s": 5.885648449882865, "warm_s": 0.00025210426330566407, "tflops": 298.13826507515205, "gbps": 316.3074791135768}
+{"description": "grouped_fp8_nt groups=4 m=4480 n=4096 k=2048", "first_call_s": 0.00233672559261322, "warm_s": 0.00025262342834472655, "tflops": 297.5255627416909, "gbps": 315.6574373267728}
+grouped_fp8_nt groups=4 m=4480 n=4096 k=2048 (trial 4/5)
+  cold first call:       5885.648 ms
+  disk-cache first call:    2.337 ms
+  warm call:                252.6 us
+  throughput:              297.53 TFLOP/s
+  bandwidth:               315.66 GB/s
+
+{"description": "grouped_fp8_nt groups=4 m=4480 n=4096 k=2048", "first_call_s": 5.876402880996466, "warm_s": 0.00025255162048339844, "tflops": 297.61015801892586, "gbps": 315.7471880297909}
+{"description": "grouped_fp8_nt groups=4 m=4480 n=4096 k=2048", "first_call_s": 0.002096550539135933, "warm_s": 0.0002526886444091797, "tflops": 297.4487747786956, "gbps": 315.57596973322126}
+grouped_fp8_nt groups=4 m=4480 n=4096 k=2048 (trial 5/5)
+  cold first call:       5876.403 ms
+  disk-cache first call:    2.097 ms
+  warm call:                252.7 us
+  throughput:              297.45 TFLOP/s
+  bandwidth:               315.58 GB/s
+
+{"description": "tf32_hc_prenorm_gemm m=4096 n=24 k=7168 splits=16", "first_call_s": 1.8277694415301085, "warm_s": 6.259897613525391e-05, "tflops": 22.5129264247875, "gbps": 1053.7230490396494}
+{"description": "tf32_hc_prenorm_gemm m=4096 n=24 k=7168 splits=16", "first_call_s": 0.007721079513430595, "warm_s": 6.246540832519532e-05, "tflops": 22.561065104437443, "gbps": 1055.9761917604299}
+tf32_hc_prenorm_gemm m=4096 n=24 k=7168 splits=16 (trial 1/5)
+  cold first call:       1827.769 ms
+  disk-cache first call:    7.721 ms
+  warm call:                 62.5 us
+  throughput:               22.56 TFLOP/s
+  bandwidth:              1055.98 GB/s
+
+{"description": "tf32_hc_prenorm_gemm m=4096 n=24 k=7168 splits=16", "first_call_s": 1.8242545556277037, "warm_s": 6.245753479003906e-05, "tflops": 22.563909202269024, "gbps": 1056.1093104577646}
+{"description": "tf32_hc_prenorm_gemm m=4096 n=24 k=7168 splits=16", "first_call_s": 0.009904064238071442, "warm_s": 6.237184143066407e-05, "tflops": 22.59491000544916, "gbps": 1057.5603106624153}
+tf32_hc_prenorm_gemm m=4096 n=24 k=7168 splits=16 (trial 2/5)
+  cold first call:       1824.255 ms
+  disk-cache first call:    9.904 ms
+  warm call:                 62.4 us
+  throughput:               22.59 TFLOP/s
+  bandwidth:              1057.56 GB/s
+
+{"description": "tf32_hc_prenorm_gemm m=4096 n=24 k=7168 splits=16", "first_call_s": 1.7698302939534187, "warm_s": 6.237913513183594e-05, "tflops": 22.59226808806385, "gbps": 1057.436655070511}
+{"description": "tf32_hc_prenorm_gemm m=4096 n=24 k=7168 splits=16", "first_call_s": 0.008888935670256615, "warm_s": 6.251801681518556e-05, "tflops": 22.54208012013724, "gbps": 1055.0875949087674}
+tf32_hc_prenorm_gemm m=4096 n=24 k=7168 splits=16 (trial 3/5)
+  cold first call:       1769.830 ms
+  disk-cache first call:    8.889 ms
+  warm call:                 62.5 us
+  throughput:               22.54 TFLOP/s
+  bandwidth:              1055.09 GB/s
+
+{"description": "tf32_hc_prenorm_gemm m=4096 n=24 k=7168 splits=16", "first_call_s": 1.7741438802331686, "warm_s": 6.251232147216796e-05, "tflops": 22.544133873310866, "gbps": 1055.1837213303286}
+{"description": "tf32_hc_prenorm_gemm m=4096 n=24 k=7168 splits=16", "first_call_s": 0.009329654276371002, "warm_s": 6.241676712036133e-05, "tflops": 22.578646876766367, "gbps": 1056.7991109312384}
+tf32_hc_prenorm_gemm m=4096 n=24 k=7168 splits=16 (trial 4/5)
+  cold first call:       1774.144 ms
+  disk-cache first call:    9.330 ms
+  warm call:                 62.4 us
+  throughput:               22.58 TFLOP/s
+  bandwidth:              1056.80 GB/s
+
+{"description": "tf32_hc_prenorm_gemm m=4096 n=24 k=7168 splits=16", "first_call_s": 1.8082384653389454, "warm_s": 6.237747192382812e-05, "tflops": 22.59287047928043, "gbps": 1057.4648501393115}
+{"description": "tf32_hc_prenorm_gemm m=4096 n=24 k=7168 splits=16", "first_call_s": 0.007910523563623428, "warm_s": 6.238182449340821e-05, "tflops": 22.591294106008668, "gbps": 1057.3910676012706}
+tf32_hc_prenorm_gemm m=4096 n=24 k=7168 splits=16 (trial 5/5)
+  cold first call:       1808.238 ms
+  disk-cache first call:    7.911 ms
+  warm call:                 62.4 us
+  throughput:               22.59 TFLOP/s
+  bandwidth:              1057.39 GB/s
+
+{"description": "fp8_mqa_logits seq=512 kv=4096 h=32 d=128", "first_call_s": 1.756322830915451, "warm_s": 5.014611053466797e-05, "tflops": 321.14215910856444, "gbps": 53.99134591162817}
+{"description": "fp8_mqa_logits seq=512 kv=4096 h=32 d=128", "first_call_s": 0.013768279924988747, "warm_s": 5.049683380126953e-05, "tflops": 318.91168209431646, "gbps": 53.616351683656106}
+fp8_mqa_logits seq=512 kv=4096 h=32 d=128 (trial 1/5)
+  cold first call:       1756.323 ms
+  disk-cache first call:   13.768 ms
+  warm call:                 50.5 us
+  throughput:              318.91 TFLOP/s
+  bandwidth:                53.62 GB/s
+
+{"description": "fp8_mqa_logits seq=512 kv=4096 h=32 d=128", "first_call_s": 1.7796995379030704, "warm_s": 5.023462295532226e-05, "tflops": 320.5763129211226, "gbps": 53.896214218786135}
+{"description": "fp8_mqa_logits seq=512 kv=4096 h=32 d=128", "first_call_s": 0.012739954516291618, "warm_s": 5.0546241760253906e-05, "tflops": 318.59995218602194, "gbps": 53.56394275249476}
+fp8_mqa_logits seq=512 kv=4096 h=32 d=128 (trial 2/5)
+  cold first call:       1779.700 ms
+  disk-cache first call:   12.740 ms
+  warm call:                 50.5 us
+  throughput:              318.60 TFLOP/s
+  bandwidth:                53.56 GB/s
+
+{"description": "fp8_mqa_logits seq=512 kv=4096 h=32 d=128", "first_call_s": 1.8266457580029964, "warm_s": 4.98721923828125e-05, "tflops": 322.906001091501, "gbps": 54.287888112435844}
+{"description": "fp8_mqa_logits seq=512 kv=4096 h=32 d=128", "first_call_s": 0.0115666463971138, "warm_s": 4.9816574096679686e-05, "tflops": 323.26651320395285, "gbps": 54.348498448440154}
+fp8_mqa_logits seq=512 kv=4096 h=32 d=128 (trial 3/5)
+  cold first call:       1826.646 ms
+  disk-cache first call:   11.567 ms
+  warm call:                 49.8 us
+  throughput:              323.27 TFLOP/s
+  bandwidth:                54.35 GB/s
+
+{"description": "fp8_mqa_logits seq=512 kv=4096 h=32 d=128", "first_call_s": 1.5486265439540148, "warm_s": 5.0309185028076176e-05, "tflops": 320.10119422552333, "gbps": 53.816335893516126}
+{"description": "fp8_mqa_logits seq=512 kv=4096 h=32 d=128", "first_call_s": 0.01149073801934719, "warm_s": 5.05354232788086e-05, "tflops": 318.66815716873646, "gbps": 53.57540957088091}
+fp8_mqa_logits seq=512 kv=4096 h=32 d=128 (trial 4/5)
+  cold first call:       1548.627 ms
+  disk-cache first call:   11.491 ms
+  warm call:                 50.5 us
+  throughput:              318.67 TFLOP/s
+  bandwidth:                53.58 GB/s
+
+{"description": "fp8_mqa_logits seq=512 kv=4096 h=32 d=128", "first_call_s": 1.574046803638339, "warm_s": 5.008639907836914e-05, "tflops": 321.52501486086794, "gbps": 54.055712724799804}
+{"description": "fp8_mqa_logits seq=512 kv=4096 h=32 d=128", "first_call_s": 0.011414902284741402, "warm_s": 5.030559921264648e-05, "tflops": 320.1240112442903, "gbps": 53.820171956511835}
+fp8_mqa_logits seq=512 kv=4096 h=32 d=128 (trial 5/5)
+  cold first call:       1574.047 ms
+  disk-cache first call:   11.415 ms
+  warm call:                 50.3 us
+  throughput:              320.12 TFLOP/s
+  bandwidth:                53.82 GB/s
+
