@@ -1,6 +1,11 @@
 {
-  "created_at": "2026-09-22T15:23:41.711475+00:00",
+  "created_at": "2026-09-24T18:50:54.125014+00:00",
   "device": "NVIDIA H200 MIG 3g.71gb",
+  "binding": {
+    "package_module": "/workspaces/vllm_container/DeepGEMM/deep_gemm/__init__.py",
+    "binding_module": "/workspaces/vllm_container/DeepGEMM/deep_gemm/_C.py",
+    "native_modules": {}
+  },
   "warmups": 10,
   "repetitions": 1000,
   "results": [
@@ -13,9 +18,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 33.40950393676758,
-      "milliseconds per call": 0.03340950393676758,
-      "tflops": 224.97169614447148
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 33.07993337512016,
+      "wall milliseconds per call": 0.03307993337512016,
+      "effective tflops": 227.21305640999338
     },
     {
       "kernel": "bf16_gemm_nn",
@@ -26,9 +32,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 34.03318405151367,
-      "milliseconds per call": 0.03403318405151367,
-      "tflops": 220.84894427225086
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 33.42551365494728,
+      "wall milliseconds per call": 0.03342551365494728,
+      "effective tflops": 224.8639421248665
     },
     {
       "kernel": "bf16_gemm_tn",
@@ -39,9 +46,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 33.172542572021484,
-      "milliseconds per call": 0.033172542572021485,
-      "tflops": 226.57873606406451
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 32.625505700707436,
+      "wall milliseconds per call": 0.032625505700707436,
+      "effective tflops": 230.37781657548445
     },
     {
       "kernel": "bf16_gemm_tt",
@@ -52,9 +60,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 33.414974212646484,
-      "milliseconds per call": 0.033414974212646484,
-      "tflops": 224.93486663100177
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 32.949307933449745,
+      "wall milliseconds per call": 0.032949307933449745,
+      "effective tflops": 228.1138281623709
     },
     {
       "kernel": "cublaslt_gemm_nt",
@@ -65,9 +74,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 33.37177658081055,
-      "milliseconds per call": 0.033371776580810544,
-      "tflops": 225.2260304392055
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 33.406682312488556,
+      "wall milliseconds per call": 0.033406682312488556,
+      "effective tflops": 224.9906978996891
     },
     {
       "kernel": "cublaslt_gemm_nn",
@@ -78,9 +88,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 34.06355285644531,
-      "milliseconds per call": 0.034063552856445314,
-      "tflops": 220.6520499982969
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 33.4236491471529,
+      "wall milliseconds per call": 0.0334236491471529,
+      "effective tflops": 224.87648595486306
     },
     {
       "kernel": "cublaslt_gemm_tn",
@@ -91,9 +102,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 33.203521728515625,
-      "milliseconds per call": 0.03320352172851562,
-      "tflops": 226.36733625593078
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 32.67024829983711,
+      "wall milliseconds per call": 0.03267024829983711,
+      "effective tflops": 230.06230926128205
     },
     {
       "kernel": "cublaslt_gemm_tt",
@@ -104,9 +116,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 33.394657135009766,
-      "milliseconds per call": 0.03339465713500977,
-      "tflops": 225.07171544277637
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 32.924335449934006,
+      "wall milliseconds per call": 0.032924335449934006,
+      "effective tflops": 228.28684817129894
     },
     {
       "kernel": "fp8_fp4_gemm_nt",
@@ -117,9 +130,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 28.046016693115234,
-      "milliseconds per call": 0.028046016693115235,
-      "tflops": 267.995018695296
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 26.662005111575127,
+      "wall milliseconds per call": 0.026662005111575127,
+      "effective tflops": 281.90650840198424
     },
     {
       "kernel": "fp8_fp4_gemm_nn",
@@ -130,9 +144,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 28.18351936340332,
-      "milliseconds per call": 0.028183519363403322,
-      "tflops": 266.6875158877382
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 26.538513600826263,
+      "wall milliseconds per call": 0.026538513600826263,
+      "effective tflops": 283.2183023153937
     },
     {
       "kernel": "fp8_fp4_gemm_tn",
@@ -143,9 +158,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 28.689983367919922,
-      "milliseconds per call": 0.028689983367919922,
-      "tflops": 261.97968369700516
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 27.941623702645302,
+      "wall milliseconds per call": 0.027941623702645302,
+      "effective tflops": 268.9962776675868
     },
     {
       "kernel": "fp8_fp4_gemm_tt",
@@ -156,9 +172,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 28.612960815429688,
-      "milliseconds per call": 0.02861296081542969,
-      "tflops": 262.6849006114339
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 27.75469981133938,
+      "wall milliseconds per call": 0.02775469981133938,
+      "effective tflops": 270.8079287144445
     },
     {
       "kernel": "m_grouped_fp8_fp4_gemm_nt_contiguous",
@@ -169,9 +186,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 2177.937744140625,
-      "milliseconds per call": 2.177937744140625,
-      "tflops": 248.47628484878217
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 2166.4346866309643,
+      "wall milliseconds per call": 2.1664346866309643,
+      "effective tflops": 249.7956124112702
     },
     {
       "kernel": "m_grouped_fp8_fp4_gemm_nn_contiguous",
@@ -182,9 +200,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 2178.466796875,
-      "milliseconds per call": 2.178466796875,
-      "tflops": 248.41594100598633
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 2165.5323058366776,
+      "wall milliseconds per call": 2.1655323058366776,
+      "effective tflops": 249.89970264466433
     },
     {
       "kernel": "m_grouped_fp8_fp4_gemm_nt_masked",
@@ -195,9 +214,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 2155.197998046875,
-      "milliseconds per call": 2.155197998046875,
-      "tflops": 251.09798718559767
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 2148.5373228788376,
+      "wall milliseconds per call": 2.1485373228788376,
+      "effective tflops": 251.8764154261415
     },
     {
       "kernel": "k_grouped_fp8_gemm_nt_contiguous",
@@ -211,9 +231,10 @@
         12
       ],
       "status": "passed",
-      "total milliseconds": 90.35289764404297,
-      "milliseconds per call": 0.09035289764404297,
-      "tflops": 71.30320235418321
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 89.68152664601803,
+      "wall milliseconds per call": 0.08968152664601803,
+      "effective tflops": 71.83699012427608
     },
     {
       "kernel": "k_grouped_fp8_gemm_tn_contiguous",
@@ -251,9 +272,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 1843.248779296875,
-      "milliseconds per call": 1.843248779296875,
-      "tflops": 293.59351020562343
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 1841.0661090165377,
+      "wall milliseconds per call": 1.8410661090165377,
+      "effective tflops": 293.9415790914105
     },
     {
       "kernel": "m_grouped_bf16_gemm_nn_contiguous",
@@ -264,9 +286,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 1826.667724609375,
-      "milliseconds per call": 1.826667724609375,
-      "tflops": 296.2585214624767
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 1822.9365292936563,
+      "wall milliseconds per call": 1.8229365292936563,
+      "effective tflops": 296.8649048388364
     },
     {
       "kernel": "m_grouped_bf16_gemm_nt_masked",
@@ -277,9 +300,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 1797.7969970703125,
-      "milliseconds per call": 1.7977969970703125,
-      "tflops": 301.01612149641096
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 1794.9435133486986,
+      "wall milliseconds per call": 1.7949435133486986,
+      "effective tflops": 301.49465722538827
     },
     {
       "kernel": "k_grouped_bf16_gemm_tn_contiguous",
@@ -290,9 +314,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 83.65007781982422,
-      "milliseconds per call": 0.08365007781982423,
-      "tflops": 77.01667603796544
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 84.45078693330288,
+      "wall milliseconds per call": 0.08445078693330288,
+      "effective tflops": 76.28645247661323
     },
     {
       "kernel": "cublaslt_nvfp4_gemm_nt",
@@ -314,9 +339,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 160.40492248535156,
-      "milliseconds per call": 0.16040492248535157,
-      "tflops": 338.8809956562529
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 151.1132325977087,
+      "wall milliseconds per call": 0.1511132325977087,
+      "effective tflops": 359.71819876761884
     },
     {
       "kernel": "batched_symm",
@@ -327,9 +353,10 @@
       "min_sm": null,
       "supported_sms": null,
       "status": "passed",
-      "total milliseconds": 169.5016632080078,
-      "milliseconds per call": 0.1695016632080078,
-      "tflops": 320.6940794043603
+      "runtime binding path": "torch dispatcher confirmed",
+      "total wall milliseconds": 169.5318277925253,
+      "wall milliseconds per call": 0.1695318277925253,
+      "effective tflops": 320.63701871087045
     }
   ]
 }

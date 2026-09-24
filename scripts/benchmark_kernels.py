@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import random
 import sys
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,18 +47,65 @@ def unsupported_reason(case: BenchmarkCase, sm: int) -> str | None:
     return None
 
 
+def prioritize_repo_on_path() -> None:
+    repo_root = str(REPO_ROOT)
+    tests_dir = str(TESTS_DIR)
+    if repo_root in sys.path:
+        sys.path.remove(repo_root)
+    if tests_dir in sys.path:
+        sys.path.remove(tests_dir)
+    sys.path[:0] = [repo_root, tests_dir]
+
+
+def report_loaded_binding() -> tuple[bool, dict[str, object]]:
+    """Print imported module paths and return binding metadata."""
+    prioritize_repo_on_path()
+    import deep_gemm
+    from deep_gemm import _C
+
+    binding_path = str(getattr(_C, "__file__", "<unknown>"))
+    is_python_facade = binding_path.endswith(".py")
+    package_path = str(getattr(deep_gemm, "__file__", "<unknown>"))
+    print(f"Loaded DeepGEMM package: {deep_gemm.__file__}")
+    print(f"Loaded binding module:   {binding_path}")
+    native_modules = sorted(
+        (name, str(module.__file__))
+        for name, module in sys.modules.items()
+        if name.startswith("deep_gemm")
+        and isinstance(getattr(module, "__file__", None), str)
+        and module.__file__.endswith((".so", ".pyd", ".dylib"))
+    )
+    if native_modules:
+        for name, path in native_modules:
+            print(f"Loaded native module:    {name} ({path})")
+    else:
+        print("Loaded native module:    none found")
+    return is_python_facade, {
+        "package_module": package_path,
+        "binding_module": binding_path,
+        "native_modules": dict(native_modules),
+    }
+
+
 def make_call(case: BenchmarkCase) -> Callable[[], None]:
     """Allocate inputs for one case and return only its kernel invocation."""
-    if str(REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(REPO_ROOT))
-    if str(TESTS_DIR) not in sys.path:
-        sys.path.insert(0, str(TESTS_DIR))
+    prioritize_repo_on_path()
 
     import deep_gemm
     from deep_gemm import _C
 
     def get_kernel(name: str):
-        return getattr(deep_gemm, name, None) or getattr(_C, name)
+        kernel = getattr(deep_gemm, name, None)
+        source = "deep_gemm" if kernel is not None else "deep_gemm._C"
+        if kernel is None:
+            kernel = getattr(_C, name)
+        callable_module = getattr(kernel, "__module__", type(kernel).__module__)
+        callable_name = getattr(kernel, "__name__", type(kernel).__name__)
+        print(
+            f"Selected binding: {name} via {source} "
+            f"({callable_module}.{callable_name}; {type(kernel).__name__})"
+        )
+        return kernel
 
     m, n, k = case.m, case.n, case.k
     count = case.groups_or_batches
@@ -238,14 +286,38 @@ def benchmark(call: Callable[[], None], warmups: int, repetitions: int) -> float
         call()
     torch.cuda.synchronize()
 
-    start = torch.cuda.Event(enable_timing=True)
-    end = torch.cuda.Event(enable_timing=True)
-    start.record()
+    start = time.perf_counter()
     for _ in range(repetitions):
         call()
-    end.record()
     torch.cuda.synchronize()
-    return start.elapsed_time(end)  # / repetitions
+    return (time.perf_counter() - start) * 1e3
+
+
+def verify_runtime_dispatch(call: Callable[[], None], case: BenchmarkCase,
+                            require_torch_dispatch: bool) -> str:
+    """Profile one untimed call to see whether this API reached torch.ops."""
+    op_name = f"deep_gemm::{case.kernel}"
+    with torch.profiler.profile(
+        activities=[torch.profiler.ProfilerActivity.CPU]
+    ) as profile:
+        call()
+    torch.cuda.synchronize()
+    recorded = {event.key for event in profile.key_averages()}
+    if op_name in recorded:
+        print(f"Runtime path check: confirmed dispatcher call {op_name}")
+        return "torch dispatcher confirmed"
+
+    if require_torch_dispatch:
+        raise RuntimeError(
+            f"{case.kernel} is exported through the Python _C facade, but the "
+            f"profiler did not observe the expected dispatcher call {op_name}. "
+            "Check the Python wrapper and registered operator name."
+        )
+    print(
+        f"Runtime path check: no {op_name} dispatcher event observed; "
+        "this is consistent with a direct native-extension binding."
+    )
+    return "native extension; dispatcher event not observed"
 
 
 def main() -> None:
@@ -300,11 +372,12 @@ def main() -> None:
     warmups = 10
     repetitions = 1000
     FILE_INDEX = 1 
-    output_file = REPO_ROOT / f"kernel_benchmark_results_temp"   # _no_gil{FILE_INDEX}.json"
+    output_file = REPO_ROOT / f"kernel_benchmark_results_temp.json"   # _no_gil{FILE_INDEX}.json"
 
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required to benchmark DeepGEMM")
 
+    is_python_facade, binding_info = report_loaded_binding()
     sm = torch.cuda.get_device_capability()[0]
     kernel_results = []
     for case in cases:
@@ -320,27 +393,32 @@ def main() -> None:
             continue
 
         call = make_call(case)
-        total_milliseconds = benchmark(call, warmups, repetitions)
-        milliseconds_per_call = total_milliseconds / repetitions
+        runtime_binding_path = verify_runtime_dispatch(call, case, is_python_facade)
+        total_wall_milliseconds = benchmark(call, warmups, repetitions)
+        wall_milliseconds_per_call = total_wall_milliseconds / repetitions
         tflops = (
             2 * case.m * case.n * case.k * case.groups_or_batches
-        ) / (milliseconds_per_call * 1e9)
+        ) / (wall_milliseconds_per_call * 1e9)
         result = {
             **asdict(case),
             "status": "passed",
-            "total milliseconds": total_milliseconds,
-            "milliseconds per call": milliseconds_per_call,
-            "tflops": tflops,
+            "runtime binding path": runtime_binding_path,
+            "total wall milliseconds": total_wall_milliseconds,
+            "wall milliseconds per call": wall_milliseconds_per_call,
+            "effective tflops": tflops,
         }
         kernel_results.append(result)
         print(
             f"{case.kernel:24} m={case.m:5} n={case.n:5} k={case.k:5}  "
-            f"{total_milliseconds:8.3f} ms  {tflops:8.2f} TFLOP/s"
+            f"{wall_milliseconds_per_call:8.3f} ms/call  "
+            f"{total_wall_milliseconds:8.3f} ms total  "
+            f"{tflops:8.2f} effective TFLOP/s"
         )
 
     report = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "device": torch.cuda.get_device_name(torch.cuda.current_device()),
+        "binding": binding_info,
         "warmups": warmups,
         "repetitions": repetitions,
         "results": kernel_results,
