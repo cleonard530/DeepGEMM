@@ -1,0 +1,154 @@
+{
+  "created_at": "2026-09-23T12:29:54.576527+00:00",
+  "build_label": "torch_deepjit_gil_enabled",
+  "deep_gemm_path": "/workspaces/vllm_container/DeepGEMM/deep_gemm/__init__.py",
+  "device": "NVIDIA H200 MIG 3g.71gb",
+  "shape": {
+    "m": 128,
+    "n": 4096,
+    "k": 7168
+  },
+  "warmups": 20,
+  "calls": 1000,
+  "trials": 3,
+  "summaries": {
+    "no_worker": {
+      "median_foreground_us_per_call": 33.43009576201439,
+      "median_worker_progress_ratio": null
+    },
+    "io_bound": {
+      "median_foreground_us_per_call": 33.46824273467064,
+      "median_worker_progress_ratio": 1.0
+    },
+    "scheduler": {
+      "median_foreground_us_per_call": 33.4872305393219,
+      "median_worker_progress_ratio": 0.9642857142857143
+    },
+    "cpu_bound": {
+      "median_foreground_us_per_call": 6706.36167190969,
+      "median_worker_progress_ratio": 1.1055547192533495
+    }
+  },
+  "results": [
+    {
+      "profile": "no_worker",
+      "trial": 1,
+      "foreground_seconds": 0.03343009576201439,
+      "foreground_us_per_call": 33.43009576201439,
+      "foreground_calls_per_second": 29913.165882589838,
+      "worker_tasks": 0,
+      "standalone_worker_tasks": 0,
+      "worker_progress_ratio": null
+    },
+    {
+      "profile": "no_worker",
+      "trial": 2,
+      "foreground_seconds": 0.03343972936272621,
+      "foreground_us_per_call": 33.43972936272621,
+      "foreground_calls_per_second": 29904.54824418094,
+      "worker_tasks": 0,
+      "standalone_worker_tasks": 0,
+      "worker_progress_ratio": null
+    },
+    {
+      "profile": "no_worker",
+      "trial": 3,
+      "foreground_seconds": 0.03341834805905819,
+      "foreground_us_per_call": 33.41834805905819,
+      "foreground_calls_per_second": 29923.681393010855,
+      "worker_tasks": 0,
+      "standalone_worker_tasks": 0,
+      "worker_progress_ratio": null
+    },
+    {
+      "profile": "io_bound",
+      "trial": 1,
+      "foreground_seconds": 0.03344297595322132,
+      "foreground_us_per_call": 33.44297595322132,
+      "foreground_calls_per_second": 29901.645158575586,
+      "worker_tasks": 32,
+      "standalone_worker_tasks": 32,
+      "worker_progress_ratio": 1.0
+    },
+    {
+      "profile": "io_bound",
+      "trial": 2,
+      "foreground_seconds": 0.03347584418952465,
+      "foreground_us_per_call": 33.47584418952465,
+      "foreground_calls_per_second": 29872.28624731509,
+      "worker_tasks": 32,
+      "standalone_worker_tasks": 32,
+      "worker_progress_ratio": 1.0
+    },
+    {
+      "profile": "io_bound",
+      "trial": 3,
+      "foreground_seconds": 0.03346824273467064,
+      "foreground_us_per_call": 33.46824273467064,
+      "foreground_calls_per_second": 29879.07097267684,
+      "worker_tasks": 32,
+      "standalone_worker_tasks": 32,
+      "worker_progress_ratio": 1.0
+    },
+    {
+      "profile": "scheduler",
+      "trial": 1,
+      "foreground_seconds": 0.0334872305393219,
+      "foreground_us_per_call": 33.4872305393219,
+      "foreground_calls_per_second": 29862.129053215205,
+      "worker_tasks": 27,
+      "standalone_worker_tasks": 28,
+      "worker_progress_ratio": 0.9642857142857143
+    },
+    {
+      "profile": "scheduler",
+      "trial": 2,
+      "foreground_seconds": 0.033480679616332054,
+      "foreground_us_per_call": 33.480679616332054,
+      "foreground_calls_per_second": 29867.97196052719,
+      "worker_tasks": 27,
+      "standalone_worker_tasks": 28,
+      "worker_progress_ratio": 0.9642857142857143
+    },
+    {
+      "profile": "scheduler",
+      "trial": 3,
+      "foreground_seconds": 0.03350985236465931,
+      "foreground_us_per_call": 33.50985236465931,
+      "foreground_calls_per_second": 29841.969732299858,
+      "worker_tasks": 27,
+      "standalone_worker_tasks": 27,
+      "worker_progress_ratio": 1.0
+    },
+    {
+      "profile": "cpu_bound",
+      "trial": 1,
+      "foreground_seconds": 6.762459525838494,
+      "foreground_us_per_call": 6762.459525838494,
+      "foreground_calls_per_second": 147.87519188530854,
+      "worker_tasks": 37172,
+      "standalone_worker_tasks": 35825,
+      "worker_progress_ratio": 1.0375994417306351
+    },
+    {
+      "profile": "cpu_bound",
+      "trial": 2,
+      "foreground_seconds": 6.70636167190969,
+      "foreground_us_per_call": 6706.36167190969,
+      "foreground_calls_per_second": 149.11214887031915,
+      "worker_tasks": 36754,
+      "standalone_worker_tasks": 32567,
+      "worker_progress_ratio": 1.1285657260416986
+    },
+    {
+      "profile": "cpu_bound",
+      "trial": 3,
+      "foreground_seconds": 6.638097869232297,
+      "foreground_us_per_call": 6638.097869232297,
+      "foreground_calls_per_second": 150.6455643920253,
+      "worker_tasks": 36721,
+      "standalone_worker_tasks": 33215,
+      "worker_progress_ratio": 1.1055547192533495
+    }
+  ]
+}
