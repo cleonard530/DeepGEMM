@@ -361,21 +361,21 @@ static void fp8_fp4_mega_moe(
     // Check buffer bytes
     const auto num_ranks = static_cast<int>(sym_buffer_ptrs.size());
     const auto num_experts_ = num_experts_per_rank * num_ranks;
-    const auto [num_required_bytes, layout_info_values] = get_symm_buffer_size_for_mega_moe(
+    const auto layout_info = build_symm_buffer_layout(
         num_ranks, num_experts,
         num_max_tokens_per_rank, num_topk,
         hidden, intermediate_hidden,
         weight_dtype == torch::kFloat8_e4m3fn ? "fp8xfp8" : "fp8xfp4",
         activation, num_shared_experts
     );
-    DG_HOST_ASSERT(sym_buffer.nbytes() >= static_cast<size_t>(num_required_bytes));
+    DG_HOST_ASSERT(sym_buffer.nbytes() >= static_cast<size_t>(layout_info.num_bytes));
     DG_HOST_ASSERT(num_experts == num_experts_);
 
     // Already registered tensors
     const auto [x, x_sf, topk_idx, topk_weights,
                 shared_l1_acts, shared_l1_acts_sf, shared_l2_acts, shared_l2_acts_sf,
                 l1_acts, l1_acts_sf, l2_acts, l2_acts_sf] =
-        slice_symm_buffer_from_layout(sym_buffer, SymmBufferLayoutInfo::from_int_list(layout_info_values));
+        slice_symm_buffer_from_layout(sym_buffer, layout_info);
 
     // Dispatch into different architectures
     if (arch_major == 10) {
@@ -488,20 +488,20 @@ static void bf16_mega_moe(
     // Check buffer bytes
     const auto num_ranks = static_cast<int>(sym_buffer_ptrs.size());
     const auto num_experts_ = num_experts_per_rank * num_ranks;
-    const auto [num_required_bytes, layout_info_values] = get_symm_buffer_size_for_mega_moe(
+    const auto layout_info = build_symm_buffer_layout(
         num_ranks, num_experts,
         num_max_tokens_per_rank, num_topk,
         hidden, intermediate_hidden,
         "bf16xbf16", activation, num_shared_experts
     );
-    DG_HOST_ASSERT(sym_buffer.nbytes() >= static_cast<size_t>(num_required_bytes));
+    DG_HOST_ASSERT(sym_buffer.nbytes() >= static_cast<size_t>(layout_info.num_bytes));
     DG_HOST_ASSERT(num_experts == num_experts_);
 
     // Already registered tensors
     const auto [x, _x_sf, topk_idx, topk_weights,
                 shared_l1_acts, _shared_l1_acts_sf, shared_l2_acts, _shared_l2_acts_sf,
                 l1_acts, _l1_acts_sf, l2_acts, _l2_acts_sf] =
-        slice_symm_buffer_from_layout(sym_buffer, SymmBufferLayoutInfo::from_int_list(layout_info_values));
+        slice_symm_buffer_from_layout(sym_buffer, layout_info);
 
     // Dispatch into different architectures
     if (arch_major == 10) {

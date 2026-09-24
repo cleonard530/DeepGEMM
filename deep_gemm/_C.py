@@ -1,3 +1,10 @@
+"""Compatibility facade for the former ``deep_gemm._C`` extension.
+
+Keeping this module name preserves the existing Python API after moving
+operator registration from pybind to ``TORCH_LIBRARY``. It loads the compiled
+extension and forwards calls to ``torch.ops.deep_gemm``.
+"""
+
 import torch
 from pathlib import Path
 
