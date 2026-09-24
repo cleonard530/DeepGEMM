@@ -587,8 +587,16 @@ def apply_python_wrappers(parsed_ops, c_py_path):
         elif node.name == 'bf16_mega_gate':
             op['return_type'] = 'tuple[torch.Tensor, torch.Tensor]'
             next(p for p in op['parameters'] if p['name'] == 'out')['py_type'] = 'Optional[tuple[torch.Tensor, torch.Tensor]]'
-        elif node.name == 'get_symm_buffer_size_for_mega_moe':
+        elif node.name in {
+            'get_symm_buffer_size_for_mega_moe',
+            'get_symm_buffer_size_for_nvfp4_mega_moe',
+        }:
             op['return_type'] = 'tuple[int, Callable[[torch.Tensor], tuple[Optional[torch.Tensor], ...]]]'
+        if node.name == 'nvfp4_mega_moe':
+            for name in ('shared_l1_weights_tuple_opt', 'shared_l2_weights_tuple_opt'):
+                next(p for p in op['parameters'] if p['name'] == name)['py_type'] = (
+                    'Optional[tuple[torch.Tensor, Optional[torch.Tensor]]]'
+                )
         elif node.name == 'set_block_size_multiple_of':
             op['parameters'][0]['py_type'] = 'int | tuple[int, int] | list[int]'
     aliases = {}

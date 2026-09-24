@@ -370,6 +370,66 @@ def get_block_m_for_mega_moe(num_ranks, num_experts, num_max_tokens_per_rank, nu
     )
 
 
+def get_token_alignment_for_nvfp4_mega_moe():
+    return _torch_ops.get_token_alignment_for_nvfp4_mega_moe()
+
+
+def get_block_m_for_nvfp4_mega_moe(
+    num_ranks, num_experts, num_max_tokens_per_rank, num_tokens, num_topk,
+):
+    return _torch_ops.get_block_m_for_nvfp4_mega_moe(
+        num_ranks, num_experts, num_max_tokens_per_rank, num_tokens, num_topk
+    )
+
+
+def nvfp4_mega_moe(
+    y,
+    l1_weights_tuple,
+    l2_weights_tuple,
+    shared_l1_weights_tuple_opt,
+    shared_l2_weights_tuple_opt,
+    cumulative_local_expert_recv_stats,
+    sym_buffer,
+    sym_buffer_ptrs,
+    rank_idx,
+    num_max_tokens_per_rank,
+    num_experts,
+    num_topk,
+    activation_clamp_opt,
+    fast_math,
+    activation_alpha,
+    activation_beta,
+    l1_alpha=None,
+    l2_alpha=None,
+    l2_activation_scale=1.0,
+):
+    return _torch_ops.nvfp4_mega_moe(
+        y,
+        l1_weights_tuple[0],
+        l1_weights_tuple[1],
+        l2_weights_tuple[0],
+        l2_weights_tuple[1],
+        shared_l1_weights_tuple_opt[0] if shared_l1_weights_tuple_opt is not None else None,
+        shared_l1_weights_tuple_opt[1] if shared_l1_weights_tuple_opt is not None else None,
+        shared_l2_weights_tuple_opt[0] if shared_l2_weights_tuple_opt is not None else None,
+        shared_l2_weights_tuple_opt[1] if shared_l2_weights_tuple_opt is not None else None,
+        cumulative_local_expert_recv_stats,
+        sym_buffer,
+        sym_buffer_ptrs,
+        rank_idx,
+        num_max_tokens_per_rank,
+        num_experts,
+        num_topk,
+        activation_clamp_opt,
+        fast_math,
+        activation_alpha,
+        activation_beta,
+        l1_alpha,
+        l2_alpha,
+        l2_activation_scale,
+    )
+
+
 def fp8_fp4_mega_moe(
     y,
     l1_weights_tuple,
@@ -544,6 +604,33 @@ def get_symm_buffer_size_for_mega_moe(
     return num_bytes, slice_input_buffers
 
 
+def get_symm_buffer_size_for_nvfp4_mega_moe(
+    num_ranks,
+    num_experts,
+    num_max_tokens_per_rank,
+    num_topk,
+    hidden,
+    intermediate_hidden,
+    num_shared_experts=0,
+    shared_bf16=False,
+):
+    num_bytes, layout_info = _torch_ops.get_symm_buffer_size_for_nvfp4_mega_moe(
+        num_ranks,
+        num_experts,
+        num_max_tokens_per_rank,
+        num_topk,
+        hidden,
+        intermediate_hidden,
+        num_shared_experts,
+        shared_bf16,
+    )
+
+    def slice_input_buffers(buffer):
+        return _torch_ops._slice_symm_buffer_for_nvfp4_mega_moe(buffer, layout_info)
+
+    return num_bytes, slice_input_buffers
+
+
 Runtime = torch.classes.deep_gemm.Runtime
 get_jit = _torch_ops.get_jit
 
@@ -571,6 +658,10 @@ _PUBLIC_API = [
     'get_block_m_for_mega_moe',
     'get_symm_buffer_size_for_mega_moe',
     'fp8_fp4_mega_moe', 'bf16_mega_moe',
+    'get_token_alignment_for_nvfp4_mega_moe',
+    'get_block_m_for_nvfp4_mega_moe',
+    'get_symm_buffer_size_for_nvfp4_mega_moe',
+    'nvfp4_mega_moe',
     'get_bf16_mega_gate_config', 'bf16_mega_gate',
     # FP8/FP4 GEMMs
     'fp8_fp4_gemm_nt', 'fp8_fp4_gemm_nn',
