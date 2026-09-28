@@ -28,7 +28,7 @@ cxx_flags = ['-std=c++20', '-O3', '-fPIC', '-Wno-psabi', '-Wno-deprecated-declar
              '-DPy_LIMITED_API=0x030a0000',
              f'-D_GLIBCXX_USE_CXX11_ABI={int(torch.compiled_with_cxx11_abi())}',
              '-DDJ_DISABLE_GIL=1',
-             '-DTORCH_TARGET_VERSION=0x020d000000000000',
+             '-DTORCH_TARGET_VERSION=0x020a000000000000',
              '-DUSE_CUDA']
 
 # Sources
@@ -89,7 +89,7 @@ def get_wheel_url():
     deep_gemm_version = get_package_version()
     cuda_version = parse(torch.version.cuda).major
     # Distinct release assets prevent downloading a legacy torch/Python-specific binary.
-    wheel_filename = f'deep_gemm-{deep_gemm_version}+cu{cuda_version}.torchstable213-{python_version}-{platform_name}.whl'
+    wheel_filename = f'deep_gemm-{deep_gemm_version}+cu{cuda_version}.torchstable210-{python_version}-{platform_name}.whl'
     wheel_url = base_wheel_url.format(tag_name=f'v{deep_gemm_version}', wheel_name=wheel_filename)
     return wheel_url, wheel_filename
 
@@ -216,7 +216,7 @@ if __name__ == '__main__':
         ext_modules=get_ext_modules(),
         zip_safe=False,
         options={'bdist_wheel': {'py_limited_api': 'cp310'}},
-        install_requires=['torch>=2.13'],
+        install_requires=['torch>=2.10'],
         cmdclass={
             'build_py': CustomBuildPy,
             'bdist_wheel': CachedWheelsCommand,
