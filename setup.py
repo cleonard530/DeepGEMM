@@ -208,6 +208,7 @@ if __name__ == '__main__':
     setuptools.setup(
         name='deep_gemm',
         version=get_package_version(),
+        python_requires='>=3.10',
         packages=find_packages('.'),
         package_data={
             'deep_gemm': [
