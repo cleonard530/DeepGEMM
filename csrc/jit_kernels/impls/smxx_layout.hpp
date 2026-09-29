@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <cstdint>
 #include <format>
 #include <torch/csrc/stable/library.h>
 #include <torch/csrc/stable/ops.h>
@@ -12,6 +14,39 @@
 #include "../heuristics/runtime.hpp"
 
 namespace deep_gemm {
+
+// DeepGEMM-specific int64 sequence [0, end), compiled through the existing JIT.
+static torch::stable::Tensor deep_gemm_arange_int64(int64_t end, torch::stable::Device device) {
+    STD_TORCH_CHECK(end >= 0, "deep_gemm_arange_int64 requires a non-negative end");
+    STD_TORCH_CHECK(device.is_cuda(), "deep_gemm_arange_int64 requires a CUDA device");
+    auto output = torch::stable::empty(
+        {end}, torch::headeronly::ScalarType::Long, torch::headeronly::Layout::Strided, device);
+    if (end == 0)
+        return output;
+
+    constexpr int threads_per_block = 256;
+    constexpr int max_blocks = 4096;
+    const auto required_blocks = 1 + (end - 1) / threads_per_block;
+    const auto blocks = static_cast<unsigned int>(std::min<int64_t>(required_blocks, max_blocks));
+    const auto kernel = jit->compile("deep_gemm_arange_int64", R"(
+#include <cstdint>
+
+extern "C" __global__ void deep_gemm_arange_int64_kernel(std::int64_t* output, std::int64_t end) {
+    const std::int64_t index = static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    const std::int64_t stride = static_cast<std::int64_t>(gridDim.x) * blockDim.x;
+    for (std::int64_t i = index; i < end; i += stride)
+        output[i] = i;
+}
+)");
+    jit->launch(
+        kernel, {
+            .stream = reinterpret_cast<CUstream>(torch_compat::current_stream(output)),
+            .grid_dim = dim3(blocks, 1, 1),
+            .block_dim = dim3(threads_per_block, 1, 1),
+        },
+        output.mutable_data_ptr<int64_t>(), end);
+    return output;
+}
 
 class PackFP32IntoUE8M0Runtime final {
 public:

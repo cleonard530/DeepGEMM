@@ -227,7 +227,7 @@ static SymmBufferSlice slice_symm_buffer_from_layout(
             buffer.device(), torch::headeronly::ScalarType::Float);
 
         auto shared_l1_acts = x;
-        auto shared_l1_acts_sf = (layout_info.with_sf and layout_info.num_shared_experts > 0) ? torch_compat::from_blob(
+        auto shared_l1_acts_sf = (layout_info.with_sf and layout_info.num_shared_experts > 0) ? torch::stable::from_blob(
             math::advance_ptr(buffer.mutable_data_ptr(), layout_info.shared_l1_sf_base),
             {layout::get_num_max_shared_sf_tokens(layout_info.num_max_tokens_per_rank), layout_info.hidden / 128},
             {1, layout::get_num_max_shared_sf_tokens(layout_info.num_max_tokens_per_rank)},
@@ -236,7 +236,7 @@ static SymmBufferSlice slice_symm_buffer_from_layout(
             math::advance_ptr(buffer.mutable_data_ptr(), layout_info.shared_l2_token_base),
             {layout_info.num_max_tokens_per_rank, layout_info.shared_intermediate_hidden},
             buffer.device(), layout_info.with_sf ? torch::headeronly::ScalarType::Float8_e4m3fn : torch::headeronly::ScalarType::BFloat16) : torch::stable::Tensor();
-        auto shared_l2_acts_sf = (layout_info.with_sf and layout_info.num_shared_experts > 0) ? torch_compat::from_blob(
+        auto shared_l2_acts_sf = (layout_info.with_sf and layout_info.num_shared_experts > 0) ? torch::stable::from_blob(
             math::advance_ptr(buffer.mutable_data_ptr(), layout_info.shared_l2_sf_base),
             {layout::get_num_max_shared_sf_tokens(layout_info.num_max_tokens_per_rank), layout_info.shared_intermediate_hidden / 128},
             {1, layout::get_num_max_shared_sf_tokens(layout_info.num_max_tokens_per_rank)},
@@ -246,7 +246,7 @@ static SymmBufferSlice slice_symm_buffer_from_layout(
             math::advance_ptr(buffer.mutable_data_ptr(), layout_info.l1_token_base),
             {layout_info.num_ring_tokens, layout_info.hidden},
             buffer.device(), layout_info.with_sf ? torch::headeronly::ScalarType::Float8_e4m3fn : torch::headeronly::ScalarType::BFloat16);
-        auto l1_acts_sf = layout_info.with_sf ? torch_compat::from_blob(
+        auto l1_acts_sf = layout_info.with_sf ? torch::stable::from_blob(
             math::advance_ptr(buffer.mutable_data_ptr(), layout_info.l1_sf_base),
             {layout_info.num_sf_ring_tokens, layout_info.hidden / 128},
             {1, layout_info.num_sf_ring_tokens},
@@ -255,7 +255,7 @@ static SymmBufferSlice slice_symm_buffer_from_layout(
             math::advance_ptr(buffer.mutable_data_ptr(), layout_info.l2_token_base),
             {layout_info.num_ring_tokens, layout_info.intermediate_hidden},
             buffer.device(), layout_info.with_sf ? torch::headeronly::ScalarType::Float8_e4m3fn : torch::headeronly::ScalarType::BFloat16);
-        auto l2_acts_sf = layout_info.with_sf ? torch_compat::from_blob(
+        auto l2_acts_sf = layout_info.with_sf ? torch::stable::from_blob(
             math::advance_ptr(buffer.mutable_data_ptr(), layout_info.l2_sf_base),
             {layout_info.num_sf_ring_tokens, layout_info.intermediate_hidden / 128},
             {1, layout_info.num_sf_ring_tokens},
@@ -370,7 +370,7 @@ static void fp8_fp4_mega_moe(
         weight_dtype == torch::headeronly::ScalarType::Float8_e4m3fn ? "fp8xfp8" : "fp8xfp4",
         activation, num_shared_experts
     );
-    DG_HOST_ASSERT(sym_buffer.nbytes() >= static_cast<size_t>(layout_info.num_bytes));
+    DG_HOST_ASSERT(torch_compat::nbytes(sym_buffer) >= static_cast<size_t>(layout_info.num_bytes));
     DG_HOST_ASSERT(num_experts == num_experts_);
 
     // Already registered tensors
@@ -496,7 +496,7 @@ static void bf16_mega_moe(
         hidden, intermediate_hidden,
         "bf16xbf16", activation, num_shared_experts
     );
-    DG_HOST_ASSERT(sym_buffer.nbytes() >= static_cast<size_t>(layout_info.num_bytes));
+    DG_HOST_ASSERT(torch_compat::nbytes(sym_buffer) >= static_cast<size_t>(layout_info.num_bytes));
     DG_HOST_ASSERT(num_experts == num_experts_);
 
     // Already registered tensors
