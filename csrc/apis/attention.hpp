@@ -235,13 +235,13 @@ static torch::stable::Tensor fp8_fp4_paged_mqa_logits(const std::tuple<torch::st
     // Derive KV values and SF tensor
     kv_cache_stride_bytes = fused_kv_cache.stride(0);
     DG_HOST_ASSERT(kv_cache_stride_bytes % sf_bytes == 0);
-    kv_cache = torch_compat::from_blob(
+    kv_cache = torch::stable::from_blob(
         fused_kv_cache.mutable_data_ptr(),
         {num_kv_blocks, block_kv, kv_head_dim},
         {kv_cache_stride_bytes, kv_head_dim, 1},
         fused_kv_cache.device(), is_fp4 ? kPackedFP4 : torch::headeronly::ScalarType::Float8_e4m3fn
     );
-    kv_cache_sf = torch_compat::from_blob(
+    kv_cache_sf = torch::stable::from_blob(
         fused_kv_cache.mutable_data_ptr<uint8_t>() + block_kv * kv_head_dim,
         {num_kv_blocks, block_kv},
         {kv_cache_stride_bytes / sf_bytes, 1},

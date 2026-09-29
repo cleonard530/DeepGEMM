@@ -227,7 +227,7 @@ static SymmBufferSlice slice_symm_buffer_from_layout(
         layout_info.shared_with_sf ? torch::headeronly::ScalarType::Float8_e4m3fn
                                    : torch::headeronly::ScalarType::BFloat16) : x;
     auto shared_l1_acts_sf = (layout_info.shared_with_sf and layout_info.num_shared_experts > 0)
-        ? torch_compat::from_blob(
+        ? torch::stable::from_blob(
             math::advance_ptr(buffer_data, layout_info.shared_l1_sf_base),
             {layout::get_num_max_shared_sf_tokens(layout_info.num_max_tokens_per_rank), layout_info.hidden / 128},
             {1, layout::get_num_max_shared_sf_tokens(layout_info.num_max_tokens_per_rank)}, device,
@@ -238,7 +238,7 @@ static SymmBufferSlice slice_symm_buffer_from_layout(
         layout_info.shared_with_sf ? torch::headeronly::ScalarType::Float8_e4m3fn
                                    : torch::headeronly::ScalarType::BFloat16) : torch::stable::Tensor();
     auto shared_l2_acts_sf = (layout_info.shared_with_sf and layout_info.num_shared_experts > 0)
-        ? torch_compat::from_blob(
+        ? torch::stable::from_blob(
             math::advance_ptr(buffer_data, layout_info.shared_l2_sf_base),
             {layout::get_num_max_shared_sf_tokens(layout_info.num_max_tokens_per_rank), layout_info.shared_intermediate_hidden / 128},
             {1, layout::get_num_max_shared_sf_tokens(layout_info.num_max_tokens_per_rank)}, device,
@@ -247,14 +247,14 @@ static SymmBufferSlice slice_symm_buffer_from_layout(
     auto l1_acts = torch_compat::from_blob(
         math::advance_ptr(buffer_data, layout_info.l1_token_base),
         {layout_info.num_ring_tokens, layout_info.hidden / 2}, device, kPackedFP4);
-    auto l1_acts_sf = torch_compat::from_blob(
+    auto l1_acts_sf = torch::stable::from_blob(
         math::advance_ptr(buffer_data, layout_info.l1_sf_base),
         {layout_info.num_sf_ring_tokens, layout_info.hidden / 64},
         {1, layout_info.num_sf_ring_tokens}, device, torch::headeronly::ScalarType::Int);
     auto l2_acts = torch_compat::from_blob(
         math::advance_ptr(buffer_data, layout_info.l2_token_base),
         {layout_info.num_ring_tokens, layout_info.intermediate_hidden / 2}, device, kPackedFP4);
-    auto l2_acts_sf = torch_compat::from_blob(
+    auto l2_acts_sf = torch::stable::from_blob(
         math::advance_ptr(buffer_data, layout_info.l2_sf_base),
         {layout_info.num_sf_ring_tokens, layout_info.intermediate_hidden / 64},
         {1, layout_info.num_sf_ring_tokens}, device, torch::headeronly::ScalarType::Int);
