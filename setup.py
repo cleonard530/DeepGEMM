@@ -85,7 +85,7 @@ def get_wheel_url():
     python_version = 'cp310-abi3'
     platform_name = get_platform()
     deep_gemm_version = get_package_version()
-    cxx11_abi = int(torch._C._GLIBCXX_USE_CXX11_ABI)
+    cxx11_abi = int(torch.compiled_with_cxx11_abi())
 
     # Determine the version numbers that will be used to determine the correct wheel
     # We're using the CUDA version used to build torch, not the one currently installed
