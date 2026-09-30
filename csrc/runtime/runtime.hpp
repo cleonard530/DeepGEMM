@@ -38,6 +38,7 @@ public:
     torch::stable::Tensor balanced_sm_locality_domains;
 
     explicit Runtime() {
+        // Stable Torch ABI has no accessor for PyTorch's managed cuBLASLt handle.
         STD_TORCH_CHECK(deep_jit::get_env<int>("DG_USE_PYTORCH_CUBLASLT_HANDLE", 0) == 0,
                         "The stable ABI build uses a self-managed cuBLASLt handle; unset DG_USE_PYTORCH_CUBLASLT_HANDLE");
         // Whether to create workspace tensor on each call instead of holding one.

@@ -122,9 +122,9 @@ static void cublaslt_gemm(const torch::stable::Tensor& lhs, const torch::stable:
     const auto trans_b = a_major == cute::UMMA::Major::K ? CUBLAS_OP_N : CUBLAS_OP_T;
 
     // Matrix layouts
-    const auto cuda_type_a = torch_compat::scalar_type_to_cuda(rhs.scalar_type());
-    const auto cuda_type_b = torch_compat::scalar_type_to_cuda(lhs.scalar_type());
-    const auto cuda_type_d = torch_compat::scalar_type_to_cuda(out.scalar_type());
+    const auto cuda_type_a = torch_compat::scalar_type_to_cuda_data_type(rhs.scalar_type());
+    const auto cuda_type_b = torch_compat::scalar_type_to_cuda_data_type(lhs.scalar_type());
+    const auto cuda_type_d = torch_compat::scalar_type_to_cuda_data_type(out.scalar_type());
     const auto layout_a = b_major == cute::UMMA::Major::K ? get_cublaslt_layout(cuda_type_a, k, n, rhs.stride(0))
                                                           : get_cublaslt_layout(cuda_type_a, n, k, rhs.stride(1));
     const auto layout_b = a_major == cute::UMMA::Major::K ? get_cublaslt_layout(cuda_type_b, k, m, lhs.stride(0))
@@ -147,9 +147,9 @@ static void cublaslt_batched_gemm(const torch::stable::Tensor& lhs, const torch:
 
     // cuBLASLt uses column-major layouts. Swap the operands so that their column-major
     // interpretation computes the transpose of the requested row-major result.
-    const auto cuda_type_a = torch_compat::scalar_type_to_cuda(rhs.scalar_type());
-    const auto cuda_type_b = torch_compat::scalar_type_to_cuda(lhs.scalar_type());
-    const auto cuda_type_d = torch_compat::scalar_type_to_cuda(out.scalar_type());
+    const auto cuda_type_a = torch_compat::scalar_type_to_cuda_data_type(rhs.scalar_type());
+    const auto cuda_type_b = torch_compat::scalar_type_to_cuda_data_type(lhs.scalar_type());
+    const auto cuda_type_d = torch_compat::scalar_type_to_cuda_data_type(out.scalar_type());
     const auto layout_a = b_major == cute::UMMA::Major::K ?
         get_cublaslt_layout(cuda_type_a, k, n, rhs.stride(-2), num_batches, rhs_batch_offset) :
         get_cublaslt_layout(cuda_type_a, n, k, rhs.stride(-1), num_batches, rhs_batch_offset);
@@ -174,7 +174,7 @@ static void cublaslt_nvfp4_gemm(const torch::stable::Tensor& lhs, const torch::s
 
     // Matrix layouts
     // NOTES: dimensions and leading dims are in logical FP4 elements (2 elements per packed byte)
-    const auto cuda_type_d = torch_compat::scalar_type_to_cuda(out.scalar_type());
+    const auto cuda_type_d = torch_compat::scalar_type_to_cuda_data_type(out.scalar_type());
     const auto layout_a = get_cublaslt_layout(CUDA_R_4F_E2M1, k, n, static_cast<int>(rhs.stride(0)) * 2);
     const auto layout_b = get_cublaslt_layout(CUDA_R_4F_E2M1, k, m, static_cast<int>(lhs.stride(0)) * 2);
     const auto layout_d = get_cublaslt_layout(cuda_type_d, n, m, static_cast<int>(out.stride(0)));
