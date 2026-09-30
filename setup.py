@@ -87,8 +87,10 @@ def get_wheel_url():
     python_version = 'cp310-abi3'
     platform_name = get_platform()
     deep_gemm_version = get_package_version()
+    # Use the CUDA version reported by the build-time PyTorch installation.
     cuda_version = parse(torch.version.cuda).major
     # Distinct release assets prevent downloading a legacy torch/Python-specific binary.
+    # The filename identifies the CUDA, stable ABI, Python abi3, and platform variants.
     wheel_filename = f'deep_gemm-{deep_gemm_version}+cu{cuda_version}.torchstable210-{python_version}-{platform_name}.whl'
     wheel_url = base_wheel_url.format(tag_name=f'v{deep_gemm_version}', wheel_name=wheel_filename)
     return wheel_url, wheel_filename
