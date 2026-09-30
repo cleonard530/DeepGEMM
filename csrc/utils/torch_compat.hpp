@@ -131,6 +131,22 @@ inline torch::stable::Tensor permute(const torch::stable::Tensor& self, std::vec
     return torch::stable::detail::to<torch::stable::Tensor>(stack[0]);
 }
 
+// Call empty_strided through the stable dispatcher because no stable C++ wrapper is available.
+inline torch::stable::Tensor empty_strided(const std::vector<int64_t>& size,
+                                           const std::vector<int64_t>& stride,
+                                           std::optional<torch::headeronly::ScalarType> dtype,
+                                           std::optional<torch::stable::Device> device) {
+    std::array<StableIValue, 6> stack{
+        torch::stable::detail::from(size),
+        torch::stable::detail::from(stride),
+        torch::stable::detail::from(dtype),
+        torch::stable::detail::from(std::nullopt),  // layout
+        torch::stable::detail::from(device),
+        torch::stable::detail::from(std::nullopt)};  // pin_memory
+    detail::call_dispatcher("aten::empty_strided", "", stack.data());
+    return torch::stable::detail::to<torch::stable::Tensor>(stack[0]);
+}
+
 // `aten::view.dtype`: a different overload than the shape-based `view` in `torch::stable::ops`.
 // TODO(torch 2.14): Remove this local wrapper and call torch::stable::view(self, dtype) directly.
 inline torch::stable::Tensor view_dtype(const torch::stable::Tensor& self, torch::headeronly::ScalarType dtype) {
@@ -146,6 +162,7 @@ inline size_t element_size(torch::headeronly::ScalarType dtype) {
     return aoti_torch_dtype_element_size(shim_dtype);
 }
 
+// Get the current CUDA stream through the stable-compatible AOTI shim.
 inline cudaStream_t current_stream(const torch::stable::Tensor& tensor) {
     void* stream = nullptr;
     TORCH_ERROR_CODE_CHECK(aoti_torch_get_current_cuda_stream(tensor.get_device_index(), &stream));
@@ -154,10 +171,12 @@ inline cudaStream_t current_stream(const torch::stable::Tensor& tensor) {
 
 using StreamKey = std::pair<int32_t, cudaStream_t>;
 
+// Combine the device and stream so runtime state is keyed to the active CUDA stream.
 inline StreamKey stream_key(const torch::stable::Tensor& tensor) {
     return {tensor.get_device_index(), current_stream(tensor)};
 }
 
+// Query CUDA graph capture state without relying on unstable PyTorch APIs.
 inline bool is_capturing(cudaStream_t stream) {
     cudaStreamCaptureStatus status;
     const auto error = cudaStreamIsCapturing(stream, &status);
@@ -165,10 +184,12 @@ inline bool is_capturing(cudaStream_t stream) {
     return status != cudaStreamCaptureStatusNone;
 }
 
+// Adapt the stable API's mutable Tensor& parameter to const handles and temporaries.
 inline torch::stable::Tensor zero_(torch::stable::Tensor self) {
     return torch::stable::zero_(self);
 }
 
+// Use the dispatcher for slice because the stable header API does not expose this overload here.
 inline torch::stable::Tensor slice(const torch::stable::Tensor& self, int64_t dim,
                                   int64_t start, int64_t end, int64_t step = 1) {
     std::array<StableIValue, 5> stack{
@@ -179,6 +200,7 @@ inline torch::stable::Tensor slice(const torch::stable::Tensor& self, int64_t di
     return torch::stable::detail::to<torch::stable::Tensor>(stack[0]);
 }
 
+// Provide a contiguous-stride convenience form; callers with custom strides use the stable API directly.
 inline torch::stable::Tensor from_blob(void* data, std::vector<int64_t> sizes,
                                      torch::stable::Device device, torch::headeronly::ScalarType dtype) {
     std::vector<int64_t> strides(sizes.size());
@@ -190,7 +212,8 @@ inline torch::stable::Tensor from_blob(void* data, std::vector<int64_t> sizes,
     return torch::stable::from_blob(data, sizes, strides, device, dtype);
 }
 
-inline cudaDataType scalar_type_to_cuda(torch::headeronly::ScalarType type) {
+// Convert a stable PyTorch dtype to the CUDA datatype expected by cuBLASLt.
+inline cudaDataType scalar_type_to_cuda_data_type(torch::headeronly::ScalarType type) {
     switch (type) {
         case torch::headeronly::ScalarType::Float: return CUDA_R_32F;
         case torch::headeronly::ScalarType::Half: return CUDA_R_16F;
@@ -200,15 +223,17 @@ inline cudaDataType scalar_type_to_cuda(torch::headeronly::ScalarType type) {
     }
 }
 
-// Stable wrappers take mutable handles even when only tensor storage changes.
+// Adapt the stable API's mutable Tensor& parameter to const handles and temporaries.
 inline torch::stable::Tensor copy_(torch::stable::Tensor self, const torch::stable::Tensor& src) {
     return torch::stable::copy_(self, src);
 }
 
+// Adapt the stable API's mutable Tensor& parameter to const handles and temporaries.
 inline torch::stable::Tensor narrow(torch::stable::Tensor self, int64_t dim, int64_t start, int64_t length) {
     return torch::stable::narrow(self, dim, start, length);
 }
 
+// Query allocated storage size, which can differ from the tensor's logical byte count.
 inline uint64_t storage_nbytes(const torch::stable::Tensor& self) {
     int64_t bytes = 0;
     TORCH_ERROR_CODE_CHECK(aoti_torch_get_storage_size(self.get(), &bytes));

@@ -101,7 +101,11 @@ static torch::stable::Tensor get_mn_major_tma_aligned_tensor(const torch::stable
     if ((batched_sf.stride(0) == tma_aligned_mn * sf_k or dim == 2) and batched_sf.stride(1) == 1 and batched_sf.stride(2) == tma_aligned_mn)
         return (dim == 2) ? torch::stable::squeeze(batched_sf, 0) : batched_sf;
 
-    const auto out = torch_compat::narrow(torch::stable::transpose(torch::stable::new_empty(batched_sf, {num_sf_batches, sf_k, tma_aligned_mn}), 1, 2), 1, 0, mn);
+    const auto out = torch_compat::empty_strided(
+        {num_sf_batches, mn, sf_k},
+        {tma_aligned_mn * sf_k, 1, tma_aligned_mn},
+        batched_sf.scalar_type(),
+        batched_sf.device());
 
     if (not batched_sf.is_contiguous()) {
         // Fallback to PyTorch's slow copy if not contiguous
@@ -157,7 +161,11 @@ static torch::stable::Tensor get_mn_major_tma_aligned_packed_ue8m0_tensor_torch(
     padded = torch::stable::view(torch_compat::view_dtype(torch::stable::view(padded, {-1}), torch::headeronly::ScalarType::Int), {num_sf_batches, aligned_mn, aligned_k / 4});
 
     // Finally, transpose
-    auto out = torch::stable::transpose(torch::stable::new_empty(sf, {num_sf_batches, aligned_k / 4, aligned_mn}, torch::headeronly::ScalarType::Int), 1, 2);
+    auto out = torch_compat::empty_strided(
+        {num_sf_batches, aligned_mn, aligned_k / 4},
+        {aligned_mn * (aligned_k / 4), 1, aligned_mn},
+        torch::headeronly::ScalarType::Int,
+        sf.device());
     out = torch_compat::slice(torch_compat::copy_(out, padded), 1, 0, mn);
     return (sf.dim() == 2) ? torch::stable::squeeze(out, 0) : out;
 }
@@ -166,7 +174,11 @@ static torch::stable::Tensor get_mn_major_tma_aligned_packed_ue8m0_tensor(const 
                                                                   const std::optional<torch::stable::Tensor>& psum_layout = std::nullopt) {
     const auto [dim, num_sf_batches, mn, sf_k, tma_aligned_mn, batched_sf] = preprocess_sf(sf);
     const auto packed_sf_k = ceil_div(sf_k, 4);
-    const auto out = torch_compat::narrow(torch::stable::transpose(torch::stable::new_empty(batched_sf, {num_sf_batches, packed_sf_k, tma_aligned_mn}, torch::headeronly::ScalarType::Int), 1, 2), 1, 0, mn);
+    const auto out = torch_compat::empty_strided(
+        {num_sf_batches, mn, packed_sf_k},
+        {packed_sf_k * tma_aligned_mn, 1, tma_aligned_mn},
+        torch::headeronly::ScalarType::Int,
+        batched_sf.device());
 
     // PSUM layout (always 2D contiguous) lets the pack kernel skip uninitialized MN gap rows
     const auto use_psum_layout = psum_layout.has_value();
