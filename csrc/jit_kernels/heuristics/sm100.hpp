@@ -176,12 +176,12 @@ struct SM100ArchSpec {
         const int pack_factor = desc.get_smem_pack_factor();
         const int swizzle_mode_a = get_swizzle_mode(
             (desc.major_a == cute::UMMA::Major::K ? layout.block_k : load_block_m) / pack_factor,
-            torch_compat::element_size(desc.a_dtype));
+            desc.a_element_size);
         const int swizzle_mode_b = get_swizzle_mode(
             (desc.major_b == cute::UMMA::Major::K ? layout.block_k : load_block_n) / pack_factor,
-            torch_compat::element_size(desc.b_dtype));
+            desc.b_element_size);
         const auto swizzle_mode_cd = get_swizzle_mode(
-            store_block_n, torch_compat::element_size(desc.cd_dtype));
+            store_block_n, desc.cd_element_size);
 
         return {
             load_block_m, load_block_n,
@@ -211,7 +211,7 @@ struct SM100ArchSpec {
 
         // C/D for TMA stores
         const int num_tma_store_stages = get_num_tma_store_stages(desc, layout);
-        const int smem_cd = (layout.swap_ab ? storage_config.store_block_m * storage_config.store_block_n * torch_compat::element_size(desc.cd_dtype)
+        const int smem_cd = (layout.swap_ab ? storage_config.store_block_m * storage_config.store_block_n * desc.cd_element_size
                                             : storage_config.store_block_m * storage_config.swizzle_cd_mode) * num_tma_store_stages;
 
         // TODO: remove SF barriers for BF16 GEMMs
@@ -225,8 +225,8 @@ struct SM100ArchSpec {
 
         // Calculate A/B per stages
         const int pack_factor = desc.get_smem_pack_factor();
-        const int smem_a_per_stage = storage_config.load_block_m * layout.block_k * torch_compat::element_size(desc.a_dtype) / pack_factor;
-        const int smem_b_per_stage = storage_config.load_block_n * layout.block_k * torch_compat::element_size(desc.b_dtype) / pack_factor;
+        const int smem_a_per_stage = storage_config.load_block_m * layout.block_k * desc.a_element_size / pack_factor;
+        const int smem_b_per_stage = storage_config.load_block_n * layout.block_k * desc.b_element_size / pack_factor;
 
         // Calculate SF A/B per stages
         int smem_sfa_per_stage = 0;

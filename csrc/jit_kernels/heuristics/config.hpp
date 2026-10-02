@@ -15,7 +15,12 @@ struct GemmDesc {
     GemmType gemm_type;
     KernelType kernel_type;
     int m, n, k, num_groups;
-    torch::headeronly::ScalarType a_dtype, b_dtype, cd_dtype;
+    const torch::headeronly::ScalarType a_dtype, b_dtype, cd_dtype;
+    // Filled once so layout enumeration does not repeatedly
+    // cross the stable ABI just to look up the same dtype sizes.
+    size_t a_element_size = torch_compat::element_size(a_dtype);
+    size_t b_element_size = torch_compat::element_size(b_dtype);
+    size_t cd_element_size = torch_compat::element_size(cd_dtype);
     cute::UMMA::Major major_a;
     cute::UMMA::Major major_b;
     bool with_accumulation;
