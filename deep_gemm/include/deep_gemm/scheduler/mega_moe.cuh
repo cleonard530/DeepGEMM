@@ -172,6 +172,7 @@ template <uint32_t BLOCK_M, uint32_t BLOCK_N, uint32_t BLOCK_K,
           uint32_t kNumSMs, uint32_t kNumRanks,
           uint32_t kNumRingBlocks,
           uint32_t kNumSharedExperts = 0,
+          bool kDecodeShaped = false,
           uint32_t kNumExpertsPerLane = math::constexpr_ceil_div(kNumExpertsPerRank, 32u),
           uint32_t kNumL1BlockNs = L1_SHAPE_N / BLOCK_N,
           uint32_t kNumL2BlockNs = L2_SHAPE_N / BLOCK_N,
@@ -347,7 +348,16 @@ struct MegaMoEScheduler {
         while (true) {
             if (num_sched_l1_waves != kNumSchedL1WavesDone and num_sched_l1_waves) {
                 // One local L1 task per scheduler; globally this is one CTA-pair wave.
-                -- num_sched_l1_waves;
+                if constexpr (kDecodeShaped and BLOCK_M <= 64) {
+                    // Without ring reuse (every pool block has its own ring slot), keep claiming L1 tasks until none is
+                    // left, then only L2 tasks: no L1 task waits for an L2 consumer then, and the L2 tasks at the tail
+                    // are short and nearly all ready. With larger tiles the L1 epilogue is as long as its mainloop, and
+                    // the L1/L2 interleaving below balances the two
+                    if (num_total_m_blocks > kNumRingBlocks)
+                        -- num_sched_l1_waves;
+                } else {
+                    -- num_sched_l1_waves;
+                }
 
                 // No more L1 tasks
                 const uint32_t l1_task_idx = get_next_task_idx(workspace.get_l1_task_count_ptr());
