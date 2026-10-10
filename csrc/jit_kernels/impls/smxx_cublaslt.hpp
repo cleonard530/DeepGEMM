@@ -193,7 +193,7 @@ static void cublaslt_bhr_hdr_bhd(const torch::stable::Tensor& lhs, const torch::
     const auto trans_b = CUBLAS_OP_N;
 
     // Matrix layouts
-    const auto cuda_type_d = torch_compat::scalar_type_to_cuda(out.scalar_type());
+    const auto cuda_type_d = torch_compat::scalar_type_to_cuda_data_type(out.scalar_type());
     const auto layout_a = get_cublaslt_layout(CUDA_R_16BF, k, m, rhs.stride(1), h, rhs.stride(0));
     const auto layout_b = get_cublaslt_layout(CUDA_R_16BF, k, n, lhs.stride(0), h, lhs.stride(1));
     const auto layout_d = get_cublaslt_layout(cuda_type_d, m, n, out.stride(0), h, out.stride(1));
@@ -211,7 +211,7 @@ static void cublaslt_bhd_hdr_bhr(const torch::stable::Tensor& lhs, const torch::
     const auto trans_b = CUBLAS_OP_N;
 
     // Matrix layouts
-    const auto cuda_type_d = torch_compat::scalar_type_to_cuda(out.scalar_type());
+    const auto cuda_type_d = torch_compat::scalar_type_to_cuda_data_type(out.scalar_type());
     const auto layout_a = get_cublaslt_layout(CUDA_R_16BF, m, k, rhs.stride(1), h, rhs.stride(0));
     const auto layout_b = get_cublaslt_layout(CUDA_R_16BF, k, n, lhs.stride(0), h, lhs.stride(1));
     const auto layout_d = get_cublaslt_layout(cuda_type_d, m, n, out.stride(0), h, out.stride(1));
