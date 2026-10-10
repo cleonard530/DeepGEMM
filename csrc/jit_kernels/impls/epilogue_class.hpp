@@ -76,7 +76,7 @@ public:
     }
 
     EpilogueOperatorArgs make_epilogue_operator_args(const int& m, const int& n) const override {
-        return {.sfd = sfd.mutable_data_ptr<uint32_t>(),
+        return {.sfd = static_cast<uint32_t*>(sfd.mutable_data_ptr()),
                 .sfd_stride = static_cast<uint32_t>(sfd.stride(-1)),
                 .shape_m = static_cast<uint32_t>(m), .shape_n = static_cast<uint32_t>(n)};
     }

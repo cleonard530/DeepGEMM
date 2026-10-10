@@ -5,11 +5,13 @@
 #include "../utils/torch_compat.hpp"
 
 #include "../jit_kernels/heuristics/runtime.hpp"
+#include "../runtime/python_package.hpp"
 #include "../runtime/runtime.hpp"
 
 namespace deep_gemm::config {
-static void init(const std::string& library_root_path) {
+static void init(const std::string& library_root_path, const std::string& python_package_name) {
     init_jit(library_root_path);
+    python_package::set_package_name(python_package_name);
 }
 static void shutdown() {
     runtime = deep_jit::LazyInit<Runtime>(nullptr);
@@ -45,7 +47,7 @@ static void set_block_size_multiple_of(const std::vector<int64_t>& new_value) {
 } // namespace deep_gemm::config
 
 STABLE_TORCH_LIBRARY_FRAGMENT(deep_gemm, m) {
-    m.def("init(str library_root_path) -> ()");
+    m.def("init(str library_root_path, str python_package_name) -> ()");
     m.def("shutdown() -> ()");
     m.def("set_num_sms(int new_num_sms) -> ()");
     m.def("get_num_sms() -> int");
