@@ -36,7 +36,7 @@ def _bind_guarded_ops(*names):
     globals().update({name: getattr(_torch_ops, name) for name in names})
 
 
-init = _torch_ops.init
+_cpp_init = _torch_ops.init
 shutdown = _torch_ops.shutdown
 set_num_sms = _torch_ops.set_num_sms
 get_num_sms = _torch_ops.get_num_sms
@@ -51,6 +51,10 @@ cublaslt_gemm_nt = _torch_ops.cublaslt_gemm_nt
 cublaslt_gemm_nn = _torch_ops.cublaslt_gemm_nn
 cublaslt_gemm_tn = _torch_ops.cublaslt_gemm_tn
 cublaslt_gemm_tt = _torch_ops.cublaslt_gemm_tt
+
+
+def init(library_root_path):
+    _cpp_init(library_root_path, __package__)
 
 
 def set_block_size_multiple_of(value):
