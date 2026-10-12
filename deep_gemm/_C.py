@@ -628,7 +628,7 @@ get_jit = _torch_ops.get_jit
 
 # GEMM epilogue classes for the `epilogue` argument, as `deep_gemm.epilogue.X`
 # NOTES: `alpha` and the FP8 `(d, sfd)` output pair are the shorthand for `Alpha` and `FP8Quantization`
-epilogue = types.ModuleType('deep_gemm.epilogue', 'GEMM epilogue classes')
+epilogue = types.ModuleType(f'{__package__}.epilogue', 'GEMM epilogue classes')
 epilogue.Identity = lambda: _torch_ops.epilogue_identity()
 epilogue.Alpha = lambda alpha: _torch_ops.epilogue_alpha(alpha)
 epilogue.FP8Quantization = lambda sfd: _torch_ops.epilogue_fp8_quantization(sfd)
