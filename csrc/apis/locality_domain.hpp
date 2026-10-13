@@ -1,12 +1,14 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <optional>
 #include <utility>
 #include <vector>
 
-#include <cuda_runtime.h>
+#include <torch/csrc/inductor/aoti_torch/c/shim.h>
+#include <torch/csrc/stable/accelerator.h>
 #include <torch/csrc/stable/library.h>
 #include <torch/csrc/stable/ops.h>
 
@@ -26,9 +28,8 @@ using Tensor = torch::stable::Tensor;
 using ScalarType = torch::headeronly::ScalarType;
 
 static torch::stable::Device current_cuda_device() {
-    int device_index = 0;
-    DG_CUDA_RUNTIME_CHECK(cudaGetDevice(&device_index));
-    return torch::stable::Device(torch::headeronly::kCUDA, device_index);
+    return torch::stable::Device(
+        torch::headeronly::kCUDA, torch::stable::accelerator::getCurrentDeviceIndex());
 }
 
 static int64_t numel(const std::vector<int64_t>& sizes) {
@@ -45,13 +46,13 @@ static std::vector<int64_t> contiguous_strides(const std::vector<int64_t>& sizes
     int64_t stride = 1;
     for (size_t i = sizes.size(); i-- > 0;) {
         strides[i] = stride;
-        stride *= sizes[i];
+        stride *= std::max<int64_t>(sizes[i], 1);
     }
     return strides;
 }
 
 static Tensor zeros(const std::vector<int64_t>& sizes, ScalarType dtype, torch::stable::Device device) {
-    return torch_compat::zero_(torch::stable::empty(sizes, dtype, std::nullopt, device));
+    return torch::stable::full(sizes, 0.0, dtype, std::nullopt, device);
 }
 
 static Tensor binary(const char* op, const Tensor& self, const Tensor& other) {
@@ -104,7 +105,9 @@ static Tensor median(const Tensor& self, int64_t dim) {
         torch::stable::detail::from(self), torch::stable::detail::from(dim),
         torch::stable::detail::from(false)};
     torch_compat::detail::call_dispatcher("aten::median", "dim", stack.data());
-    return torch::stable::detail::to<Tensor>(stack[0]);
+    const auto values = torch::stable::detail::to<Tensor>(stack[0]);
+    (void)torch::stable::detail::to<Tensor>(stack[1]);
+    return values;
 }
 
 static std::pair<Tensor, Tensor> sort(const Tensor& self, int64_t dim) {
@@ -136,14 +139,6 @@ static void index_fill_(const Tensor& self, int64_t dim, const Tensor& index, ui
         torch::stable::detail::from(index), torch::stable::detail::from(fill)};
     torch_compat::detail::call_dispatcher("aten::index_fill_", "int_Tensor", stack.data());
     (void)torch::stable::detail::to<Tensor>(stack[0]);
-}
-
-static void warn(const char* message) {
-    const mlopart::GILGuard gil;
-    if (PyErr_WarnEx(PyExc_UserWarning, message, 1) < 0) {
-        PyErr_Clear();
-        DG_HOST_UNREACHABLE(message);
-    }
 }
 
 }  // namespace stable_ops
@@ -277,7 +272,8 @@ static torch::stable::Tensor probe_sm_locality_domains() {
         if (const auto sm_domain = try_probe_sm_locality_domains(buf); sm_domain.defined())
             return sm_domain;
     }
-    stable_ops::warn("The SM locality domain probe found no stable mapping; using an even one");
+    aoti_torch_warn(__func__, __FILE__, static_cast<uint32_t>(__LINE__),
+                    "The SM locality domain probe found no stable mapping; using an even one");
     return get_even_sm_locality_domains();
 }
 
