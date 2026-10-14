@@ -293,9 +293,9 @@ static torch::stable::Tensor balance_sm_locality_domains(const torch::stable::Te
     const auto domain_1_sum = torch::stable::sum(tpc_domain);
     TORCH_ERROR_CODE_CHECK(aoti_torch_item_int64(domain_1_sum.get(), &num_domain_1));
     const uint8_t larger = num_domain_1 * 2 > num_tpcs;
-    const auto surplus = torch_compat::slice(
-        torch::stable::flatten(stable_ops::nonzero(stable_ops::binary_scalar("aten::eq", tpc_domain, larger))),
-        0, 0, num_tpcs / 2);
+    const auto matches = torch::stable::flatten(
+        stable_ops::nonzero(stable_ops::binary_scalar("aten::eq", tpc_domain, larger)));
+    const auto surplus = torch_compat::slice(matches, 0, num_tpcs / 2, matches.numel());
     const auto balanced = torch::stable::clone(sm_domain);
     stable_ops::index_fill_(torch::stable::view(balanced, {-1, kNumSMsPerTPC}), 0, surplus, larger ^ 1);
     return balanced;
